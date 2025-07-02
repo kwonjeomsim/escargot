@@ -456,6 +456,7 @@
     <test id="built-ins/Iterator/prototype/every/proto"><reason>TODO</reason></test>
     <test id="built-ins/Iterator/prototype/every/result-is-boolean"><reason>TODO</reason></test>
     <test id="built-ins/Iterator/prototype/every/this-plain-iterator"><reason>TODO</reason></test>
+    <test id="built-ins/Iterator/prototype/filter/argument-validation-failure-closes-underlying"><reason>TODO</reason></test>
     <test id="built-ins/Iterator/prototype/find/argument-validation-failure-closes-underlying"><reason>TODO</reason></test>
     <test id="built-ins/Iterator/prototype/find/callable"><reason>TODO</reason></test>
     <test id="built-ins/Iterator/prototype/find/get-next-method-only-once"><reason>TODO</reason></test>
