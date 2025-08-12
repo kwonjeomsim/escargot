@@ -98,6 +98,7 @@ namespace Escargot {
     F(SQRT2)                      \
     F(Set)                        \
     F(SetIterator)                \
+    F(ShadowRealm)                \
     F(String)                     \
     F(StringIterator)             \
     F(Symbol)                     \
@@ -197,6 +198,7 @@ namespace Escargot {
     F(error)                      \
     F(escape)                     \
     F(eval)                       \
+    F(evaluate)                   \
     F(every)                      \
     F(exec)                       \
     F(exp)                        \
@@ -278,6 +280,7 @@ namespace Escargot {
     F(hypot)                      \
     F(ignoreCase)                 \
     F(implements)                 \
+    F(importValue)                \
     F(imul)                       \
     F(includes)                   \
     F(indices)                    \
