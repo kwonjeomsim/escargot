@@ -6581,6 +6581,11 @@ typedef enum UNumberFormatAttribute {
     UNUM_LIMIT_BOOLEAN_ATTRIBUTE = 0x1003
 } UNumberFormatAttribute;
 
+typedef enum UNumberFormatMinimumGroupingDigits {
+    UNUM_MINIMUM_GROUPING_DIGITS_AUTO = -2,
+    UNUM_MINIMUM_GROUPING_DIGITS_MIN2 = -3,
+} UNumberFormatMinimumGroupingDigits;
+
 // uloc.h
 
 /** Useful constant for this language. @stable ICU 2.0 */
@@ -8410,6 +8415,22 @@ typedef enum UListFormatterWidth {
     ULISTFMT_WIDTH_NARROW,
 } UListFormatterWidth;
 #endif /* U_HIDE_DRAFT_API */
+
+// udateintervalformat.h
+
+/**
+ * Opaque UDateIntervalFormat object for use in C programs.
+ * @stable ICU 4.8
+ */
+struct UDateIntervalFormat;
+typedef struct UDateIntervalFormat UDateIntervalFormat;  /**< C typedef for struct UDateIntervalFormat. @stable ICU 4.8 */
+
+struct UFormattedDateInterval;
+/**
+ * Opaque struct to contain the results of a UDateIntervalFormat operation.
+ * @stable ICU 64
+ */
+typedef struct UFormattedDateInterval UFormattedDateInterval;
 
 // uversion.h
 

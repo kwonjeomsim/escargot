@@ -47,11 +47,8 @@ namespace Escargot {
     F(BigInt64Array)              \
     F(BigUint64Array)             \
     F(Boolean)                    \
-    F(Collator)                   \
     F(DataView)                   \
     F(Date)                       \
-    F(DateTimeFormat)             \
-    F(DisplayNames)               \
     F(E)                          \
     F(EPSILON)                    \
     F(Empty)                      \
@@ -76,8 +73,6 @@ namespace Escargot {
     F(LN2)                        \
     F(LOG10E)                     \
     F(LOG2E)                      \
-    F(ListFormat)                 \
-    F(Locale)                     \
     F(MAX_SAFE_INTEGER)           \
     F(MAX_VALUE)                  \
     F(MIN_SAFE_INTEGER)           \
@@ -89,11 +84,9 @@ namespace Escargot {
     F(NEGATIVE_INFINITY)          \
     F(NaN)                        \
     F(Number)                     \
-    F(NumberFormat)               \
     F(Object)                     \
     F(PI)                         \
     F(POSITIVE_INFINITY)          \
-    F(PluralRules)                \
     F(Promise)                    \
     F(Proxy)                      \
     F(RangeError)                 \
@@ -101,10 +94,10 @@ namespace Escargot {
     F(Reflect)                    \
     F(RegExp)                     \
     F(RegExpStringIterator)       \
-    F(RelativeTimeFormat)         \
     F(SQRT1_2)                    \
     F(SQRT2)                      \
     F(Set)                        \
+    F(ShadowRealm)                \
     F(SetIterator)                \
     F(String)                     \
     F(StringIterator)             \
@@ -154,7 +147,6 @@ namespace Escargot {
     F(atanh)                      \
     F(as)                         \
     F(await)                      \
-    F(baseName)                   \
     F(detached)                   \
     F(big)                        \
     F(bigint)                     \
@@ -165,11 +157,9 @@ namespace Escargot {
     F(buffer)                     \
     F(byteLength)                 \
     F(byteOffset)                 \
-    F(calendar)                   \
     F(call)                       \
     F(callee)                     \
     F(caller)                     \
-    F(caseFirst)                  \
     F(cause)                      \
     F(cbrt)                       \
     F(ceil)                       \
@@ -179,8 +169,6 @@ namespace Escargot {
     F(clear)                      \
     F(clz32)                      \
     F(codePointAt)                \
-    F(collation)                  \
-    F(compare)                    \
     F(compile)                    \
     F(concat)                     \
     F(configurable)               \
@@ -210,6 +198,7 @@ namespace Escargot {
     F(error)                      \
     F(escape)                     \
     F(eval)                       \
+    F(evaluate)                   \
     F(every)                      \
     F(exec)                       \
     F(exp)                        \
@@ -230,7 +219,6 @@ namespace Escargot {
     F(fontcolor)                  \
     F(fontsize)                   \
     F(forEach)                    \
-    F(format)                     \
     F(freeze)                     \
     F(from)                       \
     F(fromCharCode)               \
@@ -243,7 +231,6 @@ namespace Escargot {
     F(get)                        \
     F(getBigInt64)                \
     F(getBigUint64)               \
-    F(getCanonicalLocales)        \
     F(getDate)                    \
     F(getDay)                     \
     F(getFloat16)                 \
@@ -290,10 +277,10 @@ namespace Escargot {
     F(hasInstance)                \
     F(hasOwn)                     \
     F(hasOwnProperty)             \
-    F(hourCycle)                  \
     F(hypot)                      \
     F(ignoreCase)                 \
     F(implements)                 \
+    F(importValue)                \
     F(imul)                       \
     F(includes)                   \
     F(indices)                    \
@@ -326,7 +313,6 @@ namespace Escargot {
     F(join)                       \
     F(keyFor)                     \
     F(keys)                       \
-    F(language)                   \
     F(lastIndex)                  \
     F(lastIndexOf)                \
     F(lastMatch)                  \
@@ -346,10 +332,8 @@ namespace Escargot {
     F(matchAll)                   \
     F(max)                        \
     F(maxByteLength)              \
-    F(maximize)                   \
     F(message)                    \
     F(min)                        \
-    F(minimize)                   \
     F(multiline)                  \
     F(name)                       \
     F(next)                       \
@@ -358,8 +342,6 @@ namespace Escargot {
     F(now)                        \
     F(null)                       \
     F(number)                     \
-    F(numberingSystem)            \
-    F(numeric)                    \
     F(object)                     \
     F(of)                         \
     F(ownKeys)                    \
@@ -385,7 +367,6 @@ namespace Escargot {
     F(read)                       \
     F(reduce)                     \
     F(reduceRight)                \
-    F(region)                     \
     F(reject)                     \
     F(remainingElements)          \
     F(repeat)                     \
@@ -394,17 +375,14 @@ namespace Escargot {
     F(resizable)                  \
     F(resize)                     \
     F(resolve)                    \
-    F(resolvedOptions)            \
     F(reverse)                    \
     F(revocable)                  \
     F(revoke)                     \
     F(rightContext)               \
     F(round)                      \
     F(run)                        \
-    F(script)                     \
     F(seal)                       \
     F(search)                     \
-    F(select)                     \
     F(set)                        \
     F(setBigInt64)                \
     F(setBigUint64)               \
@@ -461,7 +439,6 @@ namespace Escargot {
     F(sumPrecise)                 \
     F(sup)                        \
     F(super)                      \
-    F(supportedLocalesOf)         \
     F(symbol)                     \
     F(symmetricDifference)        \
     F(take)                       \
@@ -731,14 +708,30 @@ namespace Escargot {
     F(Base, "base")                                         \
     F(Basic, "basic")                                       \
     F(BestFit, "best fit")                                  \
+    F(BaseName, "baseName")                                 \
+    F(Calendar, "calendar")                                 \
     F(Calendars, "calendars")                               \
     F(Cardinal, "cardinal")                                 \
     F(Case, "case")                                         \
+    F(CaseFirst, "caseFirst")                               \
+    F(CapitalCollator, "Collator")                          \
+    F(CapitalDateTimeFormat, "DateTimeFormat")              \
+    F(CapitalDisplayNames, "DisplayNames")                  \
+    F(CapitalDurationFormat, "DurationFormat")              \
+    F(CapitalListFormat, "ListFormat")                      \
+    F(CapitalLocale, "Locale")                              \
+    F(CapitalNumberFormat, "NumberFormat")                  \
+    F(CapitalPluralRules, "PluralRules")                    \
+    F(CapitalRelativeTimeFormat, "RelativeTimeFormat")      \
+    F(CapitalSegmenter, "Segmenter")                        \
     F(Code, "code")                                         \
+    F(Collation, "collation")                               \
     F(Collations, "collations")                             \
     F(Compact, "compact")                                   \
     F(CompactDisplay, "compactDisplay")                     \
+    F(Compare, "compare")                                   \
     F(CompareFunction, "compareFunction")                   \
+    F(Containing, "containing")                             \
     F(Conjunction, "conjunction")                           \
     F(Constrain, "constrain")                               \
     F(Currency, "currency")                                 \
@@ -750,9 +743,11 @@ namespace Escargot {
     F(DateStyle, "dateStyle")                               \
     F(DateTimeField, "dateTimeField")                       \
     F(Day, "day")                                           \
+    F(Days, "days")                                         \
     F(DayPeriod, "dayPeriod")                               \
     F(Decimal, "decimal")                                   \
     F(Dialect, "dialect")                                   \
+    F(Digital, "digital")                                   \
     F(Disjunction, "disjunction")                           \
     F(Engineering, "engineering")                           \
     F(Era, "era")                                           \
@@ -762,15 +757,49 @@ namespace Escargot {
     F(ExponentMinusSign, "exponentMinusSign")               \
     F(ExponentSeparator, "exponentSeparator")               \
     F(Fallback, "fallback")                                 \
+    F(FirstDayOfWeek, "firstDayOfWeek")                     \
+    F(Format, "format")                                     \
     F(FormatRange, "formatRange")                           \
     F(FormatRangeToParts, "formatRangeToParts")             \
     F(FormatMatcher, "formatMatcher")                       \
     F(FormatToParts, "formatToParts")                       \
     F(Fraction, "fraction")                                 \
-    F(FractionDigits, "fractionDigits")                     \
+    F(Fractional, "fractional")                             \
+    F(FractionalDigits, "fractionalDigits")                 \
     F(FractionalSecond, "fractionalSecond")                 \
     F(FractionalSecondDigits, "fractionalSecondDigits")     \
     F(Full, "full")                                         \
+    F(GetCalendars, "getCalendars")                         \
+    F(GetCanonicalLocales, "getCanonicalLocales")           \
+    F(GetCollations, "getCollations")                       \
+    F(GetHourCycles, "getHourCycles")                       \
+    F(GetNumberingSystems, "getNumberingSystems")           \
+    F(GetSpaceBaseName, "get baseName")                     \
+    F(GetSpaceCalendar, "get calendar")                     \
+    F(GetSpaceCalendars, "get calendars")                   \
+    F(GetSpaceCaseFirst, "get caseFirst")                   \
+    F(GetSpaceCollation, "get collation")                   \
+    F(GetSpaceCollations, "get collations")                 \
+    F(GetSpaceCompare, "get compare")                       \
+    F(GetSpaceFirstDayOfWeek, "get firstDayOfWeek")         \
+    F(GetSpaceFormat, "get format")                         \
+    F(GetSpaceHourCycle, "get hourCycle")                   \
+    F(GetSpaceHourCycles, "get hourCycles")                 \
+    F(GetSpaceLanguage, "get language")                     \
+    F(GetSpaceNumberingSystem, "get numberingSystem")       \
+    F(GetSpaceNumberingSystems, "get numberingSystems")     \
+    F(GetSpaceNumeric, "get numeric")                       \
+    F(GetSpaceRegion, "get region")                         \
+    F(GetSpaceScript, "get script")                         \
+    F(GetSpaceTextInfo, "get textInfo")                     \
+    F(GetSpaceTimeZones, "get timeZones")                   \
+    F(GetSpaceVariants, "get variants")                     \
+    F(GetSpaceWeekInfo, "get weekInfo")                     \
+    F(GetTextInfo, "getTextInfo")                           \
+    F(GetTimeZones, "getTimeZones")                         \
+    F(GetWeekInfo, "getWeekInfo")                           \
+    F(Grapheme, "grapheme")                                 \
+    F(Granularity, "granularity")                           \
     F(Group, "group")                                       \
     F(H11, "h11")                                           \
     F(H12, "h12")                                           \
@@ -782,52 +811,88 @@ namespace Escargot {
     F(HalfTrunc, "halfTrunc")                               \
     F(HalfEven, "halfEven")                                 \
     F(Hour, "hour")                                         \
+    F(Hours, "hours")                                       \
     F(Hour12, "hour12")                                     \
+    F(HourCycle, "hourCycle")                               \
     F(HourCycles, "hourCycles")                             \
     F(IgnorePunctuation, "ignorePunctuation")               \
     F(InitializedCollator, "initializedCollator")           \
     F(InitializedIntlObject, "initializedIntlObject")       \
     F(InitializedNumberFormat, "initializedNumberFormat")   \
     F(Integer, "integer")                                   \
+    F(IntlDotCollator, "Intl.Collator")                     \
+    F(IntlDotDisplayNames, "Intl.DisplayNames")             \
+    F(IntlDotListFormat, "Intl.ListFormat")                 \
+    F(IntlDotLocale, "Intl.Locale")                         \
+    F(IntlDotPluralRules, "Intl.PluralRules")               \
+    F(IntlDotNumberFormat, "Intl.NumberFormat")             \
+    F(IntlDotDateTimeFormat, "Intl.DateTimeFormat")         \
+    F(IntlDotDurationFormat, "Intl.DurationFormat")         \
+    F(IntlDotRelativeTimeFormat, "Intl.RelativeTimeFormat") \
+    F(IntlDotSegmenter, "Intl.Segmenter")                   \
+    F(IsWordLike, "isWordLike")                             \
     F(Kf, "kf")                                             \
     F(Kn, "kn")                                             \
+    F(Language, "language")                                 \
     F(LanguageDisplay, "languageDisplay")                   \
     F(LessPrecision, "lessPrecision")                       \
     F(Literal, "literal")                                   \
     F(LocaleMatcher, "localeMatcher")                       \
     F(Long, "long")                                         \
+    F(LongOffset, "longOffset")                             \
+    F(LongGeneric, "longGeneric")                           \
     F(Lookup, "lookup")                                     \
     F(Lower, "lower")                                       \
+    F(Maximize, "maximize")                                 \
     F(MaximumFractionDigits, "maximumFractionDigits")       \
     F(MaximumSignificantDigits, "maximumSignificantDigits") \
     F(Medium, "medium")                                     \
+    F(Milliseconds, "milliseconds")                         \
+    F(Microseconds, "microseconds")                         \
+    F(Minimize, "minimize")                                 \
     F(MinimumFractionDigits, "minimumFractionDigits")       \
     F(MinimumIntegerDigits, "minimumIntegerDigits")         \
     F(MinimumSignificantDigits, "minimumSignificantDigits") \
     F(MinusSign, "minusSign")                               \
     F(Minute, "minute")                                     \
+    F(Minutes, "minutes")                                   \
     F(Month, "month")                                       \
+    F(Months, "months")                                     \
     F(MorePrecision, "morePrecision")                       \
+    F(Nanoseconds, "nanoseconds")                           \
     F(Narrow, "narrow")                                     \
     F(NarrowSymbol, "narrowSymbol")                         \
     F(Negative, "negative")                                 \
     F(Never, "never")                                       \
     F(None, "none")                                         \
     F(Notation, "notation")                                 \
+    F(Numeric, "numeric")                                   \
+    F(NumberingSystem, "numberingSystem")                   \
     F(NumberingSystems, "numberingSystems")                 \
     F(Ordinal, "ordinal")                                   \
     F(Percent, "percent")                                   \
     F(PercentSign, "percentSign")                           \
     F(PlusSign, "plusSign")                                 \
+    F(Region, "region")                                     \
+    F(RelatedYear, "relatedYear")                           \
+    F(ResolvedOptions, "resolvedOptions")                   \
     F(RoundingIncrement, "roundingIncrement")               \
     F(RoundingMode, "roundingMode")                         \
     F(RoundingPriority, "roundingPriority")                 \
     F(Quarter, "quarter")                                   \
     F(Scientific, "scientific")                             \
+    F(Script, "script")                                     \
     F(Second, "second")                                     \
+    F(Seconds, "seconds")                                   \
+    F(Segment, "segment")                                   \
+    F(Segments, "segments")                                 \
+    F(Sentence, "sentence")                                 \
     F(Sensitivity, "sensitivity")                           \
+    F(Select, "select")                                     \
     F(SelectRange, "selectRange")                           \
     F(Short, "short")                                       \
+    F(ShortOffset, "shortOffset")                           \
+    F(ShortGeneric, "shortGeneric")                         \
     F(SignDisplay, "signDisplay")                           \
     F(SignificantDigits, "significantDigits")               \
     F(SmallLetterInfinity, "infinity")                      \
@@ -836,6 +901,7 @@ namespace Escargot {
     F(Standard, "standard")                                 \
     F(StripIfInteger, "stripIfInteger")                     \
     F(Style, "style")                                       \
+    F(SupportedLocalesOf, "supportedLocalesOf")             \
     F(SupportedValuesOf, "supportedValuesOf")               \
     F(TextInfo, "textInfo")                                 \
     F(Time, "time")                                         \
@@ -852,10 +918,15 @@ namespace Escargot {
     F(Usage, "usage")                                       \
     F(UseGrouping, "useGrouping")                           \
     F(Variant, "variant")                                   \
+    F(Variants, "variants")                                 \
     F(Week, "week")                                         \
+    F(Weeks, "weeks")                                       \
     F(Weekday, "weekday")                                   \
     F(WeekInfo, "weekInfo")                                 \
-    F(Year, "year")
+    F(Word, "word")                                         \
+    F(Year, "year")                                         \
+    F(Years, "years")                                       \
+    F(YearName, "yearName")
 #else
 #define FOR_EACH_LAZY_INTL_STATIC_STRING(F)
 #endif
@@ -969,56 +1040,32 @@ public:
 
     AtomicString NegativeInfinity;
     AtomicString defaultRegExpString;
-    AtomicString getBaseName;
     AtomicString getBuffer;
-    AtomicString getCalendar;
-    AtomicString getCalendars;
-    AtomicString getCaseFirst;
-    AtomicString getCollation;
-    AtomicString getCollations;
-    AtomicString getCompare;
     AtomicString getDescription;
     AtomicString getDetached;
     AtomicString getDotAll;
     AtomicString getFlags;
-    AtomicString getFormat;
     AtomicString getGlobal;
     AtomicString getHasIndices;
-    AtomicString getHourCycle;
-    AtomicString getHourCycles;
     AtomicString getIgnoreCase;
-    AtomicString getLanguage;
-    AtomicString getLength;
     AtomicString getMultiline;
-    AtomicString getNumberingSystem;
-    AtomicString getNumberingSystems;
-    AtomicString getNumeric;
-    AtomicString getRegion;
-    AtomicString getScript;
+    AtomicString getLength;
     AtomicString getSize;
     AtomicString getSource;
     AtomicString getSticky;
     AtomicString getSymbolSpecies;
     AtomicString getSymbolToStringTag;
-    AtomicString getTextInfo;
-    AtomicString getTimeZones;
     AtomicString getUnicode;
     AtomicString getUnicodeSets;
-    AtomicString getWeekInfo;
     AtomicString get__proto__;
     AtomicString getbyteLength;
     AtomicString getbyteOffset;
     AtomicString getgrowable;
     AtomicString getmaxByteLength;
     AtomicString getresizable;
-    AtomicString intlDotCollator;
-    AtomicString intlDotDisplayNames;
-    AtomicString intlDotListFormat;
-    AtomicString intlDotLocale;
-    AtomicString intlDotPluralRules;
-    AtomicString intlDotNumberFormat;
-    AtomicString intlDotRelativeTimeFormat;
     AtomicString set__proto__;
+    AtomicString symbolAsyncIterator;
+    AtomicString symbolIterator;
     AtomicString symbolMatch;
     AtomicString symbolMatchAll;
     AtomicString symbolReplace;

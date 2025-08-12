@@ -88,6 +88,7 @@ class TemporalTimeZoneObject;
 class TypedArrayObject;
 class ModuleNamespaceObject;
 class SharedArrayBufferObject;
+class ShadowRealmObject;
 #if defined(ENABLE_INTL)
 class IntlLocaleObject;
 class IntlPluralRulesObject;
@@ -95,6 +96,10 @@ class IntlDateTimeFormatObject;
 class IntlRelativeTimeFormatObject;
 class IntlDisplayNamesObject;
 class IntlListFormatObject;
+class IntlDurationFormatObject;
+class IntlSegmenterObject;
+class IntlSegmentsObject;
+class IntlSegmentsIteratorObject;
 #endif
 #if defined(ENABLE_WASM)
 class WASMModuleObject;
@@ -266,6 +271,11 @@ public:
     }
 
     virtual bool isScriptClassConstructorFunctionObject() const
+    {
+        return false;
+    }
+
+    virtual bool isShadowRealmObject() const
     {
         return false;
     }
@@ -530,6 +540,26 @@ public:
     {
         return false;
     }
+
+    virtual bool isIntlDurationFormatObject() const
+    {
+        return false;
+    }
+
+    virtual bool isIntlSegmenterObject() const
+    {
+        return false;
+    }
+
+    virtual bool isIntlSegmentsObject() const
+    {
+        return false;
+    }
+
+    virtual bool isIntlSegmentsIteratorObject() const
+    {
+        return false;
+    }
 #endif
 
 #if defined(ENABLE_TEMPORAL)
@@ -703,6 +733,13 @@ public:
         return (ScriptClassConstructorPrototypeObject*)this;
     }
 
+#if defined(ESCARGOT_ENABLE_SHADOWREALM)
+    ShadowRealmObject* asShadowRealmObject()
+    {
+        ASSERT(isShadowRealmObject());
+        return (ShadowRealmObject*)this;
+    }
+#endif
     StringObject* asStringObject()
     {
         ASSERT(isStringObject());
@@ -937,6 +974,30 @@ public:
     {
         ASSERT(isIntlListFormatObject());
         return (IntlListFormatObject*)this;
+    }
+
+    IntlDurationFormatObject* asIntlDurationFormatObject()
+    {
+        ASSERT(isIntlDurationFormatObject());
+        return (IntlDurationFormatObject*)this;
+    }
+
+    IntlSegmenterObject* asIntlSegmenterObject()
+    {
+        ASSERT(isIntlSegmenterObject());
+        return (IntlSegmenterObject*)this;
+    }
+
+    IntlSegmentsObject* asIntlSegmentsObject()
+    {
+        ASSERT(isIntlSegmentsObject());
+        return (IntlSegmentsObject*)this;
+    }
+
+    IntlSegmentsIteratorObject* asIntlSegmentsIteratorObject()
+    {
+        ASSERT(isIntlSegmentsIteratorObject());
+        return (IntlSegmentsIteratorObject*)this;
     }
 #endif
 

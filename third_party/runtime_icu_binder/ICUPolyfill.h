@@ -48,6 +48,8 @@
 #define uloc_countAvailable RuntimeICUBinder::ICU::instance().uloc_countAvailable
 #define uloc_getAvailable RuntimeICUBinder::ICU::instance().uloc_getAvailable
 #define uloc_toUnicodeLocaleType RuntimeICUBinder::ICU::instance().uloc_toUnicodeLocaleType
+#define uloc_setKeywordValue RuntimeICUBinder::ICU::instance().uloc_setKeywordValue
+#define uloc_getKeywordValue RuntimeICUBinder::ICU::instance().uloc_getKeywordValue
 
 #define u_getIntPropertyValue RuntimeICUBinder::ICU::instance().u_getIntPropertyValue
 #define u_getIntPropertyMaxValue RuntimeICUBinder::ICU::instance().u_getIntPropertyMaxValue
@@ -77,6 +79,7 @@
 #define ucol_close RuntimeICUBinder::ICU::instance().ucol_close
 #define ucol_getKeywordValues RuntimeICUBinder::ICU::instance().ucol_getKeywordValues
 #define ucol_getKeywordValuesForLocale RuntimeICUBinder::ICU::instance().ucol_getKeywordValuesForLocale
+#define ucol_getAttribute RuntimeICUBinder::ICU::instance().ucol_getAttribute
 #define ucol_open RuntimeICUBinder::ICU::instance().ucol_open
 #define ucol_strcollIter RuntimeICUBinder::ICU::instance().ucol_strcollIter
 #define ucol_strcoll RuntimeICUBinder::ICU::instance().ucol_strcoll
@@ -89,6 +92,7 @@
 #define unum_formatDouble RuntimeICUBinder::ICU::instance().unum_formatDouble
 #define unum_formatDoubleForFields RuntimeICUBinder::ICU::instance().unum_formatDoubleForFields
 #define unum_close RuntimeICUBinder::ICU::instance().unum_close
+#define unum_clone RuntimeICUBinder::ICU::instance().unum_clone
 
 #define udat_getAvailable RuntimeICUBinder::ICU::instance().udat_getAvailable
 #define udat_countAvailable RuntimeICUBinder::ICU::instance().udat_countAvailable
@@ -129,6 +133,7 @@
 #define ucal_getDayOfWeekType RuntimeICUBinder::ICU::instance().ucal_getDayOfWeekType
 #define ucal_setGregorianChange RuntimeICUBinder::ICU::instance().ucal_setGregorianChange
 #define ucal_setMillis RuntimeICUBinder::ICU::instance().ucal_setMillis
+#define ucal_clone RuntimeICUBinder::ICU::instance().ucal_clone
 
 #define udatpg_close RuntimeICUBinder::ICU::instance().udatpg_close
 #define udatpg_open RuntimeICUBinder::ICU::instance().udatpg_open
@@ -143,6 +148,12 @@
 #define ubrk_setText RuntimeICUBinder::ICU::instance().ubrk_setText
 #define ubrk_setUText RuntimeICUBinder::ICU::instance().ubrk_setUText
 #define ubrk_close RuntimeICUBinder::ICU::instance().ubrk_close
+#define ubrk_clone RuntimeICUBinder::ICU::instance().ubrk_clone
+#define ubrk_preceding RuntimeICUBinder::ICU::instance().ubrk_preceding
+#define ubrk_following RuntimeICUBinder::ICU::instance().ubrk_following
+#define ubrk_getRuleStatus RuntimeICUBinder::ICU::instance().ubrk_getRuleStatus
+#define ubrk_first RuntimeICUBinder::ICU::instance().ubrk_first
+#define ubrk_current RuntimeICUBinder::ICU::instance().ubrk_current
 
 #define ucnv_open RuntimeICUBinder::ICU::instance().ucnv_open
 #define ucnv_compareNames RuntimeICUBinder::ICU::instance().ucnv_compareNames
@@ -192,6 +203,7 @@
 #define ures_resetIterator RuntimeICUBinder::ICU::instance().ures_resetIterator
 #define ures_getSize RuntimeICUBinder::ICU::instance().ures_getSize
 #define ures_getStringByIndex RuntimeICUBinder::ICU::instance().ures_getStringByIndex
+#define ures_getStringByKey RuntimeICUBinder::ICU::instance().ures_getStringByKey
 
 #define unumf_openForSkeletonAndLocale RuntimeICUBinder::ICU::instance().unumf_openForSkeletonAndLocale
 #define unumf_openForSkeletonAndLocaleWithError RuntimeICUBinder::ICU::instance().unumf_openForSkeletonAndLocaleWithError
@@ -260,5 +272,13 @@
 #define ulistfmt_openResult RuntimeICUBinder::ICU::instance().ulistfmt_openResult
 #define ulistfmt_resultAsValue RuntimeICUBinder::ICU::instance().ulistfmt_resultAsValue
 #define ulistfmt_closeResult RuntimeICUBinder::ICU::instance().ulistfmt_closeResult
+
+#define udtitvfmt_open RuntimeICUBinder::ICU::instance().udtitvfmt_open
+#define udtitvfmt_openResult RuntimeICUBinder::ICU::instance().udtitvfmt_openResult
+#define udtitvfmt_close RuntimeICUBinder::ICU::instance().udtitvfmt_close
+#define udtitvfmt_closeResult RuntimeICUBinder::ICU::instance().udtitvfmt_closeResult
+#define udtitvfmt_formatToResult RuntimeICUBinder::ICU::instance().udtitvfmt_formatToResult
+#define udtitvfmt_formatCalendarToResult RuntimeICUBinder::ICU::instance().udtitvfmt_formatCalendarToResult
+#define udtitvfmt_resultAsValue RuntimeICUBinder::ICU::instance().udtitvfmt_resultAsValue
 
 #endif

@@ -2,6 +2,7 @@
 /*
  * Copyright (C) 2015 Andy VanWagoner (thetalecrafter@gmail.com)
  * Copyright (C) 2015 Sukolsak Sakshuwong (sukolsak@gmail.com)
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -117,6 +118,143 @@ static bool equalIgnoringASCIICase(String* timeZoneName, const UTF16StringDataNo
     return true;
 }
 
+// ICU 72 uses narrowNoBreakSpace (u202F) and thinSpace (u2009) for the output of Intl.DateTimeFormat.
+// However, a lot of real world code (websites[1], Node.js modules[2] etc.) strongly assumes that this output
+// only contains normal spaces and these code stops working because of parsing failures. As a workaround
+// for this issue, this function replaces narrowNoBreakSpace and thinSpace with normal space.
+// This behavior is aligned to SpiderMonkey[3] and V8[4].
+// [1]: https://bugzilla.mozilla.org/show_bug.cgi?id=1806042
+// [2]: https://github.com/nodejs/node/issues/46123
+// [3]: https://hg.mozilla.org/mozilla-central/rev/40e2c54d5618
+// [4]: https://chromium.googlesource.com/v8/v8/+/bab790f9165f65a44845b4383c8df7c6c32cf4b3
+template <typename Container>
+static void replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(Container& vector)
+{
+    // The key of this replacement is that we are not changing size of string.
+    // This allows us not to adjust offsets reported from formatToParts / formatRangeToParts
+    for (auto& character : vector) {
+        if (character == 0x202f || character == 0x2009) {
+            character = ' ';
+        }
+    }
+}
+
+static Optional<int64_t> parseUTCOffsetInMinutes(const StringBufferAccessData& buffer)
+{
+    // UTCOffset :::
+    //     TemporalSign Hour
+    //     TemporalSign Hour HourSubcomponents[+Extended]
+    //     TemporalSign Hour HourSubcomponents[~Extended]
+    //
+    // TemporalSign :::
+    //     ASCIISign
+    //     <MINUS>
+    //
+    // ASCIISign ::: one of
+    //     + -
+    //
+    // Hour :::
+    //     0 DecimalDigit
+    //     1 DecimalDigit
+    //     20
+    //     21
+    //     22
+    //     23
+    //
+    // HourSubcomponents[Extended] :::
+    //     TimeSeparator[?Extended] MinuteSecond
+    //
+    // TimeSeparator[Extended] :::
+    //     [+Extended] :
+    //     [~Extended] [empty]
+    //
+    // MinuteSecond :::
+    //     0 DecimalDigit
+    //     1 DecimalDigit
+    //     2 DecimalDigit
+    //     3 DecimalDigit
+    //     4 DecimalDigit
+    //     5 DecimalDigit
+
+    size_t advance = 0;
+    // sign and hour.
+    if (buffer.length < 3)
+        return NullOption;
+    int64_t factor = 1;
+    if (buffer.charAt(advance) == '+') {
+        advance++;
+    } else if (buffer.charAt(advance) == '-') {
+        factor = -1;
+        advance++;
+    } else {
+        return NullOption;
+    }
+
+    auto firstHourCharacter = buffer.charAt(advance);
+    if (!(firstHourCharacter >= '0' && firstHourCharacter <= '2')) {
+        return NullOption;
+    }
+
+    advance++;
+    auto secondHourCharacter = buffer.charAt(advance);
+    if (!isASCIIDigit(secondHourCharacter)) {
+        return NullOption;
+    }
+    unsigned hour = (secondHourCharacter - '0') + 10 * (firstHourCharacter - '0');
+    if (hour >= 24) {
+        return NullOption;
+    }
+    advance++;
+
+    if (advance == buffer.length) {
+        return (hour * 60) * factor;
+    }
+
+    if (buffer.charAt(advance) == ':') {
+        advance++;
+    } else if (!(buffer.charAt(advance) >= '0' && buffer.charAt(advance) <= '5')) {
+        if (advance != buffer.length) {
+            return NullOption;
+        }
+        return (hour * 60) * factor;
+    }
+
+    if ((buffer.length - advance) < 2) {
+        return NullOption;
+    }
+    auto firstMinuteCharacter = buffer.charAt(advance);
+    if (!(firstMinuteCharacter >= '0' && firstMinuteCharacter <= '5')) {
+        return NullOption;
+    }
+
+    advance++;
+    auto secondMinuteCharacter = buffer.charAt(advance);
+    if (!isASCIIDigit(secondMinuteCharacter)) {
+        return NullOption;
+    }
+    unsigned minute = (secondMinuteCharacter - '0') + 10 * (firstMinuteCharacter - '0');
+    advance++;
+
+    if (advance != buffer.length) {
+        return NullOption;
+    }
+
+    return (hour * 60 + minute) * factor;
+}
+
+static std::string pad(char ch, unsigned min, const std::string& s)
+{
+    if (min > s.length()) {
+        std::string result = s;
+        for (unsigned i = 0; i < min - s.length(); i++) {
+            result = ch + result;
+        }
+        return result;
+    } else {
+        return s;
+    }
+}
+
 static String* canonicalizeTimeZoneName(ExecutionState& state, String* timeZoneName)
 {
     // 6.4.1 IsValidTimeZoneName (timeZone)
@@ -124,6 +262,17 @@ static String* canonicalizeTimeZoneName(ExecutionState& state, String* timeZoneN
     UErrorCode status = U_ZERO_ERROR;
     UEnumeration* timeZones = ucal_openTimeZones(&status);
     ASSERT(U_SUCCESS(status));
+
+    if (timeZoneName->equals("Etc/UTC") || timeZoneName->equals("Etc/GMT") || timeZoneName->equals("GMT")) {
+        return timeZoneName;
+    }
+
+    if (auto offset = parseUTCOffsetInMinutes(timeZoneName->bufferAccessData())) {
+        int64_t minutes = offset.value();
+        int64_t absMinutes = std::abs(minutes);
+        std::string tz = minutes < 0 ? std::string("-") : std::string("+") + pad('0', 2, std::to_string(absMinutes / 60)) + ':' + pad('0', 2, std::to_string(absMinutes % 60));
+        return timeZoneName;
+    }
 
     String* canonical = String::emptyString();
     do {
@@ -162,11 +311,12 @@ static String* canonicalizeTimeZoneName(ExecutionState& state, String* timeZoneN
     } while (canonical->length() == 0);
     uenum_close(timeZones);
 
-    // 3. If ianaTimeZone is "Etc/UTC" or "Etc/GMT", then return "UTC".
     if (canonical->equals("Etc/UTC") || canonical->equals("Etc/GMT")) {
         canonical = state.context()->staticStrings().UTC.string();
     }
-
+    if (timeZoneName->equals("Australia/Canberra") || timeZoneName->equals("Atlantic/Jan_Mayen") || timeZoneName->equals("Pacific/Truk") || timeZoneName->equals("Etc/UCT") || timeZoneName->equals("Etc/GMT0")) {
+        return timeZoneName;
+    }
     // 4. Return ianaTimeZone.
     return canonical;
 }
@@ -174,8 +324,7 @@ static String* canonicalizeTimeZoneName(ExecutionState& state, String* timeZoneN
 
 static void toDateTimeOptionsTest(ExecutionState& state, Value options, AtomicString name, bool& needDefaults)
 {
-    Value r = options.asObject()->get(state, name).value(state, options.asObject());
-    if (!r.isUndefined()) {
+    if (options.asObject()->hasProperty(state, name)) {
         needDefaults = false;
     }
 }
@@ -222,21 +371,36 @@ std::string IntlDateTimeFormatObject::readHourCycleFromPattern(const UTF16String
 UTF16StringDataNonGCStd updateHourCycleInPatternDueToHourCycle(const UTF16StringDataNonGCStd& pattern, String* hc)
 {
     char16_t newHcChar;
+    bool isH23OrH24 = false;
     if (hc->equals("h11")) {
         newHcChar = 'K';
     } else if (hc->equals("h12")) {
         newHcChar = 'h';
     } else if (hc->equals("h23")) {
         newHcChar = 'H';
+        isH23OrH24 = true;
     } else {
         ASSERT(hc->equals("h24"));
         newHcChar = 'k';
+        isH23OrH24 = true;
     }
     bool inQuote = false;
     UTF16StringDataNonGCStd result;
     for (size_t i = 0; i < pattern.length(); i++) {
         auto ch = pattern[i];
         switch (ch) {
+        case 'a':
+        case 'b':
+        case 'B':
+            if (isH23OrH24) {
+                // pass next white space
+                if (i + 1 < pattern.length() && pattern[i + 1] == ' ') {
+                    i++;
+                }
+                continue;
+            }
+            result += ch;
+            break;
         case '\'':
             inQuote = !inQuote;
             result += ch;
@@ -251,6 +415,17 @@ UTF16StringDataNonGCStd updateHourCycleInPatternDueToHourCycle(const UTF16String
             result += ch;
             break;
         }
+    }
+
+    if (isH23OrH24) {
+        auto pos = result.find(newHcChar, 0);
+        if (pos != SIZE_MAX && (pos + 1) != result.size() && result[pos + 1] != newHcChar) {
+            result.insert(pos + result.begin(), newHcChar);
+        }
+    }
+
+    while (result.size() && result.back() == ' ') {
+        result.erase(result.size() - 1);
     }
 
     return result;
@@ -269,7 +444,6 @@ static String* icuFieldTypeToPartName(ExecutionState& state, int32_t fieldName)
     case UDAT_YEAR_FIELD:
     case UDAT_YEAR_WOY_FIELD:
     case UDAT_EXTENDED_YEAR_FIELD:
-    case UDAT_YEAR_NAME_FIELD:
         return state.context()->staticStrings().lazyYear().string();
     case UDAT_MONTH_FIELD:
     case UDAT_STANDALONE_MONTH_FIELD:
@@ -299,9 +473,17 @@ static String* icuFieldTypeToPartName(ExecutionState& state, int32_t fieldName)
         return state.context()->staticStrings().lazyTimeZoneName().string();
     case UDAT_FRACTIONAL_SECOND_FIELD:
         return state.context()->staticStrings().lazyFractionalSecond().string();
+#ifndef UDAT_RELATED_YEAR_FIELD
+#define UDAT_RELATED_YEAR_FIELD 34
+#endif
+    case UDAT_RELATED_YEAR_FIELD:
+        return state.context()->staticStrings().lazyRelatedYear().string();
+    case UDAT_YEAR_NAME_FIELD:
+        return state.context()->staticStrings().lazyYearName().string();
+
+    // Any newer additions to the UDateFormatField enum should just be considered an "unknown" part.
     default:
-        ASSERT_NOT_REACHED();
-        return String::emptyString();
+        return new ASCIIStringFromExternalMemory("unknown");
     }
 }
 
@@ -316,11 +498,11 @@ IntlDateTimeFormatObject::IntlDateTimeFormatObject(ExecutionState& state, Object
     , m_calendar(String::emptyString())
     , m_numberingSystem(String::emptyString())
     , m_timeZone(String::emptyString())
+    , m_timeZoneICU(String::emptyString())
     , m_icuDateFormat(nullptr)
 {
     // Let requestedLocales be ? CanonicalizeLocaleList(locales).
     ValueVector requestedLocales = Intl::canonicalizeLocaleList(state, locales);
-    // Let options be ? ToDateTimeOptions(options, "any", "date").
     options = toDateTimeOptions(state, options, state.context()->staticStrings().lazyAny().string(), state.context()->staticStrings().lazyDate().string());
     // Let opt be a new Record.
     StringMap opt;
@@ -330,7 +512,7 @@ IntlDateTimeFormatObject::IntlDateTimeFormatObject(ExecutionState& state, Object
     Value matcher = Intl::getOption(state, options.asObject(), state.context()->staticStrings().lazyLocaleMatcher().string(), Intl::StringValue, matcherValues, 2, matcherValues[1]);
 
     // Let calendar be ? GetOption(options, "calendar", "string", undefined, undefined).
-    Value calendar = Intl::getOption(state, options.asObject(), state.context()->staticStrings().calendar.string(), Intl::StringValue, nullptr, 0, Value());
+    Value calendar = Intl::getOption(state, options.asObject(), state.context()->staticStrings().lazyCalendar().string(), Intl::StringValue, nullptr, 0, Value());
     // If calendar is not undefined, then
     if (!calendar.isUndefined()) {
         // If calendar does not match the Unicode Locale Identifier type nonterminal, throw a RangeError exception.
@@ -341,11 +523,12 @@ IntlDateTimeFormatObject::IntlDateTimeFormatObject(ExecutionState& state, Object
 
     // Set opt.[[ca]] to calendar.
     if (!calendar.isUndefined()) {
-        opt.insert(std::make_pair("ca", calendar.toString(state)));
+        auto cal = Intl::canonicalizeCalendarTag(calendar.asString()->toNonGCUTF8StringData());
+        opt.insert(std::make_pair("ca", String::fromUTF8(cal.data(), cal.length())));
     }
 
     // Let numberingSystem be ? GetOption(options, "numberingSystem", "string", undefined, undefined).
-    Value numberingSystem = Intl::getOption(state, options.asObject(), state.context()->staticStrings().numberingSystem.string(), Intl::StringValue, nullptr, 0, Value());
+    Value numberingSystem = Intl::getOption(state, options.asObject(), state.context()->staticStrings().lazyNumberingSystem().string(), Intl::StringValue, nullptr, 0, Value());
     // If numberingSystem is not undefined, then
     if (!numberingSystem.isUndefined()) {
         // If numberingSystem does not match the Unicode Locale Identifier type nonterminal, throw a RangeError exception.
@@ -363,7 +546,7 @@ IntlDateTimeFormatObject::IntlDateTimeFormatObject(ExecutionState& state, Object
 
     // Let hourCycle be ? GetOption(options, "hourCycle", "string", « "h11", "h12", "h23", "h24" », undefined).
     Value hourCycleValue[4] = { state.context()->staticStrings().lazyH11().string(), state.context()->staticStrings().lazyH12().string(), state.context()->staticStrings().lazyH23().string(), state.context()->staticStrings().lazyH24().string() };
-    Value hourCycle = Intl::getOption(state, options.asObject(), state.context()->staticStrings().hourCycle.string(), Intl::StringValue, hourCycleValue, 4, Value());
+    Value hourCycle = Intl::getOption(state, options.asObject(), state.context()->staticStrings().lazyHourCycle().string(), Intl::StringValue, hourCycleValue, 4, Value());
     // If hour12 is not undefined, then
     if (!hour12.isUndefined()) {
         // Let hourCycle be null.
@@ -439,7 +622,7 @@ IntlDateTimeFormatObject::IntlDateTimeFormatObject(ExecutionState& state, Object
     // [[Minute]]  "minute"    "2-digit", "numeric"
     // [[Second]]  "second"    "2-digit", "numeric"
     // [[FractionalSecondDigits]]  "fractionalSecondDigits"    1𝔽, 2𝔽, 3𝔽
-    // [[TimeZoneName]]    "timeZoneName"  "short", "long"
+    // [[TimeZoneName]]    "timeZoneName"  "short", "long", "shortOffset", "longOffset", "shortGeneric", "longGeneric"
 
     std::function<void(String * prop, Value * values, size_t valuesSize)> doTable4 = [&](String* prop, Value* values, size_t valuesSize) {
         Value value = Intl::getOption(state, options.asObject(), prop, Intl::StringValue, values, valuesSize, Value());
@@ -469,7 +652,7 @@ IntlDateTimeFormatObject::IntlDateTimeFormatObject(ExecutionState& state, Object
     // Set dateTimeFormat.[[TimeStyle]] to timeStyle.
     m_timeStyle = timeStyle;
 
-    initDateTimeFormatOtherHelper(state, dataLocale, dateStyle, timeStyle, hourCycle, hour12, hour, opt, dataLocaleWithExtensions, skeletonBuilder);
+    initDateTimeFormatOtherHelper(state, String::fromUTF8(dataLocaleWithExtensions.data(), dataLocaleWithExtensions.size()), dateStyle, timeStyle, hourCycle, hour12, hour, opt, dataLocaleWithExtensions, skeletonBuilder);
 }
 
 String* IntlDateTimeFormatObject::initDateTimeFormatMainHelper(ExecutionState& state, StringMap& opt, const Value& options, const Value& hour12, std::function<void(String* prop, Value* values, size_t valuesSize)>& doTable4, StringBuilder& skeletonBuilder)
@@ -507,7 +690,7 @@ String* IntlDateTimeFormatObject::initDateTimeFormatMainHelper(ExecutionState& s
         skeletonBuilder.appendString("GGGG");
     }
 
-    Value twoDightNumericValues[2] = { state.context()->staticStrings().lazyTwoDigit().string(), state.context()->staticStrings().numeric.string() };
+    Value twoDightNumericValues[2] = { state.context()->staticStrings().lazyTwoDigit().string(), state.context()->staticStrings().lazyNumeric().string() };
     doTable4(state.context()->staticStrings().lazyYear().string(), twoDightNumericValues, 2);
 
     ret = opt.at("year");
@@ -517,7 +700,7 @@ String* IntlDateTimeFormatObject::initDateTimeFormatMainHelper(ExecutionState& s
         skeletonBuilder.appendString("y");
     }
 
-    Value allValues[5] = { state.context()->staticStrings().lazyTwoDigit().string(), state.context()->staticStrings().numeric.string(), state.context()->staticStrings().lazyNarrow().string(), state.context()->staticStrings().lazyShort().string(), state.context()->staticStrings().lazyLong().string() };
+    Value allValues[5] = { state.context()->staticStrings().lazyTwoDigit().string(), state.context()->staticStrings().lazyNumeric().string(), state.context()->staticStrings().lazyNarrow().string(), state.context()->staticStrings().lazyShort().string(), state.context()->staticStrings().lazyLong().string() };
     doTable4(state.context()->staticStrings().lazyMonth().string(), allValues, 5);
 
     ret = opt.at("month");
@@ -605,14 +788,27 @@ String* IntlDateTimeFormatObject::initDateTimeFormatMainHelper(ExecutionState& s
         opt.insert(std::make_pair("fractionalSecondDigits", fractionalSecondDigits.toString(state)));
     }
 
-    Value shortLongValues[2] = { state.context()->staticStrings().lazyShort().string(), state.context()->staticStrings().lazyLong().string() };
-    doTable4(state.context()->staticStrings().lazyTimeZoneName().string(), shortLongValues, 2);
+    Value shortLongValues[] = { state.context()->staticStrings().lazyShort().string(),
+                                state.context()->staticStrings().lazyLong().string(),
+                                state.context()->staticStrings().lazyShortOffset().string(),
+                                state.context()->staticStrings().lazyLongOffset().string(),
+                                state.context()->staticStrings().lazyShortGeneric().string(),
+                                state.context()->staticStrings().lazyLongGeneric().string() };
+    doTable4(state.context()->staticStrings().lazyTimeZoneName().string(), shortLongValues, 6);
 
     ret = opt.at("timeZoneName");
     if (ret->equals("short")) {
         skeletonBuilder.appendString("z");
     } else if (ret->equals("long")) {
         skeletonBuilder.appendString("zzzz");
+    } else if (ret->equals("shortOffset")) {
+        skeletonBuilder.appendString("O");
+    } else if (ret->equals("longOffset")) {
+        skeletonBuilder.appendString("OOOO");
+    } else if (ret->equals("shortGeneric")) {
+        skeletonBuilder.appendString("v");
+    } else if (ret->equals("longGeneric")) {
+        skeletonBuilder.appendString("vvvv");
     }
 
     return hour;
@@ -675,6 +871,7 @@ void IntlDateTimeFormatObject::initDateTimeFormatOtherHelper(ExecutionState& sta
 
         auto toPatternResult = INTL_ICU_STRING_BUFFER_OPERATION(udat_toPattern, dateFormatFromStyle.get(), false);
         patternBuffer = std::move(toPatternResult.second);
+        replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(patternBuffer);
         if (U_FAILURE(toPatternResult.first)) {
             ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to initialize DateTimeFormat");
             return;
@@ -725,6 +922,7 @@ void IntlDateTimeFormatObject::initDateTimeFormatOtherHelper(ExecutionState& sta
                     return;
                 }
                 patternBuffer = std::move(getBestPatternWithOptionsResult.second);
+                replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(patternBuffer);
             }
         }
 
@@ -742,8 +940,10 @@ void IntlDateTimeFormatObject::initDateTimeFormatOtherHelper(ExecutionState& sta
             return;
         }
         patternBuffer = std::move(getBestPatternWithOptionsResult.second);
+        replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(patternBuffer);
     }
 
+    Value hourCycleBefore = m_hourCycle;
     // If dateTimeFormat.[[Hour]] is not undefined, then
     bool hasHourOption = hour->length();
     if (hasHourOption) {
@@ -752,6 +952,7 @@ void IntlDateTimeFormatObject::initDateTimeFormatOtherHelper(ExecutionState& sta
         auto getBestPatternResult = INTL_ICU_STRING_BUFFER_OPERATION(udatpg_getBestPattern, generator.get(), u"jjmm", 4);
         ASSERT(U_SUCCESS(getBestPatternResult.first));
         patternBuffer = std::move(getBestPatternResult.second);
+        replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(patternBuffer);
         auto hcDefault = readHourCycleFromPattern(patternBuffer);
         // Let hc be dateTimeFormat.[[HourCycle]].
         auto hc = m_hourCycle;
@@ -804,10 +1005,17 @@ void IntlDateTimeFormatObject::initDateTimeFormatOtherHelper(ExecutionState& sta
     // Set dateTimeFormat.[[Pattern]] to pattern.
     // Set dateTimeFormat.[[RangePatterns]] to rangePatterns.
     // Return dateTimeFormat.
-
+    Value hc = m_hourCycle;
+    if (hour12.isUndefined()) {
+        if (!hc.isString() && hourCycleBefore.isString()) {
+            hc = hourCycleBefore.asString();
+        }
+    } else {
+        hc = hour12.toBoolean() ? state.context()->staticStrings().lazyH12().string() : state.context()->staticStrings().lazyH24().string();
+    }
     // After generating pattern from skeleton, we need to change h11 vs. h12 and h23 vs. h24 if hourCycle is specified.
-    if (!Value(m_hourCycle).isUndefined()) {
-        patternBuffer = updateHourCycleInPatternDueToHourCycle(patternBuffer, Value(m_hourCycle).asString());
+    if (!Value(hc).isUndefined()) {
+        patternBuffer = updateHourCycleInPatternDueToHourCycle(patternBuffer, Value(hc).asString());
     }
 
     // For each row in Table 4, except the header row, in table order, do
@@ -819,7 +1027,16 @@ void IntlDateTimeFormatObject::initDateTimeFormatOtherHelper(ExecutionState& sta
 
     status = U_ZERO_ERROR;
     UTF16StringData timeZoneView = m_timeZone->toUTF16StringData();
-    m_icuDateFormat = udat_open(UDAT_PATTERN, UDAT_PATTERN, dataLocaleWithExtensions.data(), (UChar*)timeZoneView.data(), timeZoneView.length(), (UChar*)patternBuffer.data(), patternBuffer.length(), &status);
+    if (auto offset = parseUTCOffsetInMinutes((UTF16String(timeZoneView.data(), timeZoneView.length())).bufferAccessData())) {
+        int64_t minutes = offset.value();
+        int64_t absMinutes = std::abs(minutes);
+        std::string timeZoneForICU = std::string("GMT") + (minutes < 0 ? "-" : "+")
+            + pad('0', 2, std::to_string(absMinutes / 60)) + pad('0', 2, std::to_string(absMinutes % 60));
+        timeZoneView = utf8StringToUTF16String(timeZoneForICU.data(), timeZoneForICU.length());
+    }
+    m_timeZoneICU = new UTF16String(std::move(timeZoneView));
+    m_icuDateFormat = udat_open(UDAT_PATTERN, UDAT_PATTERN, dataLocaleWithExtensions.data(), m_timeZoneICU->bufferAccessData().bufferAs16Bit,
+                                m_timeZoneICU->length(), (UChar*)patternBuffer.data(), patternBuffer.length(), &status);
     if (U_FAILURE(status)) {
         ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to initialize DateTimeFormat");
         return;
@@ -828,6 +1045,9 @@ void IntlDateTimeFormatObject::initDateTimeFormatOtherHelper(ExecutionState& sta
     addFinalizer([](PointerValue* obj, void* data) {
         IntlDateTimeFormatObject* self = (IntlDateTimeFormatObject*)obj;
         udat_close(self->m_icuDateFormat);
+        if (self->m_icuDateIntervalFormat) {
+            udtitvfmt_close(self->m_icuDateIntervalFormat.value());
+        }
     },
                  nullptr);
 
@@ -879,7 +1099,7 @@ void IntlDateTimeFormatObject::setDateFromPattern(ExecutionState& state, UTF16St
             break;
         case 'y':
             if (count == 1) {
-                m_year = state.context()->staticStrings().numeric.string();
+                m_year = state.context()->staticStrings().lazyNumeric().string();
             } else if (count == 2) {
                 m_year = state.context()->staticStrings().lazyTwoDigit().string();
             }
@@ -887,7 +1107,7 @@ void IntlDateTimeFormatObject::setDateFromPattern(ExecutionState& state, UTF16St
         case 'M':
         case 'L':
             if (count == 1) {
-                m_month = state.context()->staticStrings().numeric.string();
+                m_month = state.context()->staticStrings().lazyNumeric().string();
             } else if (count == 2) {
                 m_month = state.context()->staticStrings().lazyTwoDigit().string();
             } else if (count == 3) {
@@ -911,7 +1131,7 @@ void IntlDateTimeFormatObject::setDateFromPattern(ExecutionState& state, UTF16St
             break;
         case 'd':
             if (count == 1) {
-                m_day = state.context()->staticStrings().numeric.string();
+                m_day = state.context()->staticStrings().lazyNumeric().string();
             } else if (count == 2) {
                 m_day = state.context()->staticStrings().lazyTwoDigit().string();
             }
@@ -932,32 +1152,45 @@ void IntlDateTimeFormatObject::setDateFromPattern(ExecutionState& state, UTF16St
         case 'k':
         case 'K':
             if (count == 1) {
-                m_hour = state.context()->staticStrings().numeric.string();
+                m_hour = state.context()->staticStrings().lazyNumeric().string();
             } else if (count == 2) {
                 m_hour = state.context()->staticStrings().lazyTwoDigit().string();
             }
             break;
         case 'm':
             if (count == 1) {
-                m_minute = state.context()->staticStrings().numeric.string();
+                m_minute = state.context()->staticStrings().lazyNumeric().string();
             } else if (count == 2) {
                 m_minute = state.context()->staticStrings().lazyTwoDigit().string();
             }
             break;
         case 's':
             if (count == 1) {
-                m_second = state.context()->staticStrings().numeric.string();
+                m_second = state.context()->staticStrings().lazyNumeric().string();
             } else if (count == 2) {
                 m_second = state.context()->staticStrings().lazyTwoDigit().string();
             }
             break;
         case 'z':
-        case 'v':
         case 'V':
             if (count == 1) {
                 m_timeZoneName = state.context()->staticStrings().lazyShort().string();
             } else if (count == 4) {
                 m_timeZoneName = state.context()->staticStrings().lazyLong().string();
+            }
+            break;
+        case 'O':
+            if (count == 1) {
+                m_timeZoneName = state.context()->staticStrings().lazyShortOffset().string();
+            } else if (count == 4) {
+                m_timeZoneName = state.context()->staticStrings().lazyLongOffset().string();
+            }
+            break;
+        case 'v':
+            if (count == 1) {
+                m_timeZoneName = state.context()->staticStrings().lazyShortGeneric().string();
+            } else if (count == 4) {
+                m_timeZoneName = state.context()->staticStrings().lazyLongGeneric().string();
             }
             break;
         case 'S':
@@ -984,6 +1217,8 @@ UTF16StringDataNonGCStd IntlDateTimeFormatObject::format(ExecutionState& state, 
         ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format date value");
     }
 
+    replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(formatResult.second);
+
     return formatResult.second;
 }
 
@@ -1008,6 +1243,7 @@ ArrayObject* IntlDateTimeFormatObject::formatToParts(ExecutionState& state, doub
 
     auto formatResult = INTL_ICU_STRING_BUFFER_OPERATION_COMPLEX(udat_formatForFields, fpositer, m_icuDateFormat, x);
     UTF16StringDataNonGCStd resultString = std::move(formatResult.second);
+    replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(resultString);
 
     struct FieldItem {
         int32_t start;
@@ -1136,23 +1372,23 @@ Value IntlDateTimeFormatObject::toDateTimeOptions(ExecutionState& state, Value o
     }
 
     // Let dateStyle be ? Get(options, "dateStyle").
-    Value dateStyle = options.asObject()->get(state, state.context()->staticStrings().lazyDateStyle()).value(state, options);
+    bool dateStyle = options.asObject()->hasProperty(state, state.context()->staticStrings().lazyDateStyle());
     // Let timeStyle be ? Get(options, "timeStyle").
-    Value timeStyle = options.asObject()->get(state, state.context()->staticStrings().lazyTimeStyle()).value(state, options);
+    bool timeStyle = options.asObject()->hasProperty(state, state.context()->staticStrings().lazyTimeStyle());
     // If dateStyle is not undefined or timeStyle is not undefined, let needDefaults be false.
-    if (!dateStyle.isUndefined() || !timeStyle.isUndefined()) {
+    if (dateStyle || timeStyle) {
         needDefaults = false;
     }
     // If required is "date" and timeStyle is not undefined, then
     if (required.equalsTo(state, state.context()->staticStrings().lazyDate().string())) {
-        if (!timeStyle.isUndefined()) {
+        if (timeStyle) {
             // Throw a TypeError exception.
             ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "The given option value is invalid");
         }
     }
     // If required is "time" and dateStyle is not undefined, then
     if (required.equalsTo(state, state.context()->staticStrings().lazyTime().string())) {
-        if (!dateStyle.isUndefined()) {
+        if (dateStyle) {
             // Throw a TypeError exception.
             ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "The given option value is invalid");
         }
@@ -1163,7 +1399,7 @@ Value IntlDateTimeFormatObject::toDateTimeOptions(ExecutionState& state, Value o
         // For each of the property names "year", "month", "day":
         // Call the [[DefineOwnProperty]] internal method of options with the property name,
         // Property Descriptor {[[Value]]: "numeric", [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true}, and false.
-        String* v = state.context()->staticStrings().numeric.string();
+        String* v = state.context()->staticStrings().lazyNumeric().string();
         options.asObject()->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazyYear()), ObjectPropertyDescriptor(v, ObjectPropertyDescriptor::AllPresent));
         options.asObject()->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazyMonth()), ObjectPropertyDescriptor(v, ObjectPropertyDescriptor::AllPresent));
         options.asObject()->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazyDay()), ObjectPropertyDescriptor(v, ObjectPropertyDescriptor::AllPresent));
@@ -1172,13 +1408,391 @@ Value IntlDateTimeFormatObject::toDateTimeOptions(ExecutionState& state, Value o
     if (needDefaults && (defaults.equalsTo(state, state.context()->staticStrings().lazyTime().string()) || defaults.equalsTo(state, state.context()->staticStrings().all.string()))) {
         // For each of the property names "hour", "minute", "second":
         // Call the [[DefineOwnProperty]] internal method of options with the property name, Property Descriptor {[[Value]]: "numeric", [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true}, and false.
-        String* v = state.context()->staticStrings().numeric.string();
+        String* v = state.context()->staticStrings().lazyNumeric().string();
         options.asObject()->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazyHour()), ObjectPropertyDescriptor(v, ObjectPropertyDescriptor::AllPresent));
         options.asObject()->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazyMinute()), ObjectPropertyDescriptor(v, ObjectPropertyDescriptor::AllPresent));
         options.asObject()->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazySecond()), ObjectPropertyDescriptor(v, ObjectPropertyDescriptor::AllPresent));
     }
 
     return options;
+}
+
+void IntlDateTimeFormatObject::initICUIntervalFormatIfNecessary(ExecutionState& state)
+{
+    if (m_icuDateIntervalFormat) {
+        return;
+    }
+
+    auto toPatternResult = INTL_ICU_STRING_BUFFER_OPERATION(udat_toPattern, m_icuDateFormat, false);
+    if (U_FAILURE(toPatternResult.first)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to initialize DateIntervalFormat");
+        return;
+    }
+    auto pattern(std::move(toPatternResult.second));
+
+    auto getSkeletonResult = INTL_ICU_STRING_BUFFER_OPERATION(udatpg_getSkeleton, nullptr, pattern.data(), pattern.size());
+    if (U_FAILURE(getSkeletonResult.first)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to initialize DateIntervalFormat");
+        return;
+    }
+    auto skeleton(std::move(getSkeletonResult.second));
+
+    // While the pattern is including right HourCycle patterns, UDateIntervalFormat does not follow.
+    // We need to enforce HourCycle by setting "hc" extension if it is specified.
+    std::string locale = m_locale->toNonGCUTF8StringData();
+    locale += "-u-ca-";
+    locale += m_calendar->asString()->toNonGCUTF8StringData();
+    locale += "-nu-";
+    locale += m_numberingSystem->asString()->toNonGCUTF8StringData();
+    if (!m_hourCycle.toValue().isUndefined()) {
+        locale += "-hc-";
+        locale += m_hourCycle.toValue().asString()->toNonGCUTF8StringData();
+    }
+
+    UErrorCode status = U_ZERO_ERROR;
+
+    m_icuDateIntervalFormat = udtitvfmt_open(locale.data(), skeleton.data(), skeleton.size(), m_timeZoneICU->bufferAccessData().bufferAs16Bit, m_timeZoneICU->length(), &status);
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to initialize DateIntervalFormat");
+        return;
+    }
+}
+
+static LocalResourcePointer<UFormattedDateInterval> formattedValueFromDateRange(ExecutionState& state, UDateIntervalFormat* dateIntervalFormat,
+                                                                                UDateFormat* dateFormat, double startDate, double endDate, UErrorCode& status)
+{
+#if defined(ENABLE_RUNTIME_ICU_BINDER)
+    UVersionInfo versionArray;
+    u_getVersion(versionArray);
+    if (versionArray[0] < 67) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "some function of Intl.DateTimeFormat needs 67+ version of ICU");
+    }
+#endif
+
+    LocalResourcePointer<UFormattedDateInterval> result(udtitvfmt_openResult(&status),
+                                                        [](UFormattedDateInterval* d) { udtitvfmt_closeResult(d); });
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return result;
+    }
+
+    // If a date is after Oct 15, 1582, the configuration of gregorian calendar change date in UCalendar does not affect
+    // on the formatted string. To ensure that it is after Oct 15 in all timezones, we add one day to gregorian calendar
+    // change date in UTC, so that this check can conservatively answer whether the date is definitely after gregorian
+    // calendar change date.
+    auto definitelyAfterGregorianCalendarChangeDate = [](double millisecondsFromEpoch) {
+        constexpr double gregorianCalendarReformDateInUTC = -12219292800000.0;
+        return millisecondsFromEpoch >= (gregorianCalendarReformDateInUTC + TimeConstant::MsPerDay);
+    };
+
+    // UFormattedDateInterval does not have a way to configure gregorian calendar change date while ECMAScript requires that
+    // gregorian calendar change should not have effect (we are setting ucal_setGregorianChange(cal, minECMAScriptTime, &status) explicitly).
+    // As a result, if the input date is older than gregorian calendar change date (Oct 15, 1582), the formatted string becomes
+    // julian calendar date.
+    // udtitvfmt_formatCalendarToResult API offers the way to set calendar to each date of the input, so that we can use UDateFormat's
+    // calendar which is already configured to meet ECMAScript's requirement (effectively clearing gregorian calendar change date).
+    //
+    // If we can ensure that startDate is after gregorian calendar change date, we can just use udtitvfmt_formatToResult since gregorian
+    // calendar change date does not affect on the formatted string.
+    //
+    // https://unicode-org.atlassian.net/browse/ICU-20705
+    if (definitelyAfterGregorianCalendarChangeDate(startDate)) {
+        udtitvfmt_formatToResult(dateIntervalFormat, startDate, endDate, result.get(), &status);
+    } else {
+        auto createCalendarForDate = [](const UCalendar* calendar, double date, UErrorCode& status) -> LocalResourcePointer<UCalendar> {
+            auto result = LocalResourcePointer<UCalendar>(ucal_clone(calendar, &status), [](UCalendar* cal) {
+                ucal_close(cal);
+            });
+            if (U_FAILURE(status)) {
+                result.reset();
+                return result;
+            }
+            ucal_setMillis(result.get(), date, &status);
+            if (U_FAILURE(status)) {
+                result.reset();
+                return result;
+            }
+            return result;
+        };
+
+        auto calendar = udat_getCalendar(dateFormat);
+
+        auto startCalendar = createCalendarForDate(calendar, startDate, status);
+        if (U_FAILURE(status)) {
+            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+            return result;
+        }
+
+        auto endCalendar = createCalendarForDate(calendar, endDate, status);
+        if (U_FAILURE(status)) {
+            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+            return result;
+        }
+
+        udtitvfmt_formatCalendarToResult(dateIntervalFormat, startCalendar.get(), endCalendar.get(), result.get(), &status);
+    }
+
+    return result;
+}
+
+static bool dateFieldsPracticallyEqual(const UFormattedValue* formattedValue, UErrorCode& status)
+{
+    LocalResourcePointer<UConstrainedFieldPosition> iterator(ucfpos_open(&status), [](UConstrainedFieldPosition* pos) {
+        ucfpos_close(pos);
+    });
+
+    if (U_FAILURE(status)) {
+        return false;
+    }
+
+    // We only care about UFIELD_CATEGORY_DATE_INTERVAL_SPAN category.
+    ucfpos_constrainCategory(iterator.get(), UFIELD_CATEGORY_DATE_INTERVAL_SPAN, &status);
+    if (U_FAILURE(status)) {
+        return false;
+    }
+
+    bool hasSpan = ufmtval_nextPosition(formattedValue, iterator.get(), &status);
+    if (U_FAILURE(status)) {
+        return false;
+    }
+
+    return !hasSpan;
+}
+
+UTF16StringDataNonGCStd IntlDateTimeFormatObject::formatRange(ExecutionState& state, double startDate, double endDate)
+{
+    startDate = DateObject::timeClip(startDate);
+    endDate = DateObject::timeClip(endDate);
+
+    if (std::isnan(startDate) || std::isnan(endDate)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, "get invalid date value");
+    }
+
+    initICUIntervalFormatIfNecessary(state);
+
+    UErrorCode status = U_ZERO_ERROR;
+    auto result = formattedValueFromDateRange(state, m_icuDateIntervalFormat.value(), m_icuDateFormat, startDate, endDate, status);
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return UTF16StringDataNonGCStd();
+    }
+
+    // UFormattedValue is owned by UFormattedDateInterval. We do not need to close it.
+    auto formattedValue = udtitvfmt_resultAsValue(result.get(), &status);
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return UTF16StringDataNonGCStd();
+    }
+
+    // If the formatted parts of startDate and endDate are the same, it is possible that the resulted string does not look like range.
+    // For example, if the requested format only includes "year" and startDate and endDate are the same year, the result just contains one year.
+    // In that case, startDate and endDate are *practically-equal* (spec term), and we generate parts as we call `formatToParts(startDate)` with
+    // `source: "shared"` additional fields.
+    bool equal = dateFieldsPracticallyEqual(formattedValue, status);
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return UTF16StringDataNonGCStd();
+    }
+
+    if (equal) {
+        return format(state, startDate);
+    }
+
+    int32_t formattedStringLength = 0;
+    const UChar* formattedStringPointer = ufmtval_getString(formattedValue, &formattedStringLength, &status);
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return UTF16StringDataNonGCStd();
+    }
+
+    UTF16StringDataNonGCStd buffer(formattedStringPointer, formattedStringLength);
+    replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(buffer);
+    return buffer;
+}
+
+ArrayObject* IntlDateTimeFormatObject::formatRangeToParts(ExecutionState& state, double startDate, double endDate)
+{
+    startDate = DateObject::timeClip(startDate);
+    endDate = DateObject::timeClip(endDate);
+
+    if (std::isnan(startDate) || std::isnan(endDate)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, "get invalid date value");
+    }
+
+    initICUIntervalFormatIfNecessary(state);
+
+    ArrayObject* parts = new ArrayObject(state);
+    UErrorCode status = U_ZERO_ERROR;
+    auto result = formattedValueFromDateRange(state, m_icuDateIntervalFormat.value(), m_icuDateFormat, startDate, endDate, status);
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return parts;
+    }
+
+    // UFormattedValue is owned by UFormattedDateInterval. We do not need to close it.
+    auto formattedValue = udtitvfmt_resultAsValue(result.get(), &status);
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return parts;
+    }
+
+    // ICU produces ranges for the formatted string, and we construct parts array from that.
+    // For example, startDate = Jan 3, 2019, endDate = Jan 5, 2019 with en-US locale is,
+    //
+    // Formatted string: "1/3/2019 – 1/5/2019"
+    //                    | | |  |   | | |  |
+    //                    B C |  |   F G |  |
+    //                    |   +-D+   |   +-H+
+    //                    |      |   |      |
+    //                    +--A---+   +--E---+
+    //
+    // Ranges ICU generates:
+    //     A:    (0, 8)   UFIELD_CATEGORY_DATE_INTERVAL_SPAN startRange
+    //     B:    (0, 1)   UFIELD_CATEGORY_DATE month
+    //     C:    (2, 3)   UFIELD_CATEGORY_DATE day
+    //     D:    (4, 8)   UFIELD_CATEGORY_DATE year
+    //     E:    (11, 19) UFIELD_CATEGORY_DATE_INTERVAL_SPAN endRange
+    //     F:    (11, 12) UFIELD_CATEGORY_DATE month
+    //     G:    (13, 14) UFIELD_CATEGORY_DATE day
+    //     H:    (15, 19) UFIELD_CATEGORY_DATE year
+    //
+    //  We use UFIELD_CATEGORY_DATE_INTERVAL_SPAN range to determine each part is either "startRange", "endRange", or "shared".
+    //  It is guaranteed that UFIELD_CATEGORY_DATE_INTERVAL_SPAN comes first before any other parts including that range.
+    //  For example, in the above formatted string, " – " is "shared" part. For UFIELD_CATEGORY_DATE ranges, we generate corresponding
+    //  part object with types such as "month". And non populated parts (e.g. "/") become "literal" parts.
+    //  In the above case, expected parts are,
+    //
+    //     { type: "month", value: "1", source: "startRange" },
+    //     { type: "literal", value: "/", source: "startRange" },
+    //     { type: "day", value: "3", source: "startRange" },
+    //     { type: "literal", value: "/", source: "startRange" },
+    //     { type: "year", value: "2019", source: "startRange" },
+    //     { type: "literal", value: " - ", source: "shared" },
+    //     { type: "month", value: "1", source: "endRange" },
+    //     { type: "literal", value: "/", source: "endRange" },
+    //     { type: "day", value: "5", source: "endRange" },
+    //     { type: "literal", value: "/", source: "endRange" },
+    //     { type: "year", value: "2019", source: "endRange" },
+    //
+
+    int32_t formattedStringLength = 0;
+    const UChar* formattedStringPointer = ufmtval_getString(formattedValue, &formattedStringLength, &status);
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return parts;
+    }
+
+    UTF16StringDataNonGCStd buffer(formattedStringPointer, formattedStringLength);
+    replaceNarrowNoBreakSpaceOrThinSpaceWithNormalSpace(buffer);
+
+    // We care multiple categories (UFIELD_CATEGORY_DATE and UFIELD_CATEGORY_DATE_INTERVAL_SPAN).
+    // So we do not constraint iterator.
+    LocalResourcePointer<UConstrainedFieldPosition> iterator(ucfpos_open(&status), [](UConstrainedFieldPosition* pos) {
+        ucfpos_close(pos);
+    });
+    if (U_FAILURE(status)) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+        return parts;
+    }
+
+    String* sharedString = new ASCIIStringFromExternalMemory("shared");
+    String* startRangeString = new ASCIIStringFromExternalMemory("startRange");
+    String* endRangeString = new ASCIIStringFromExternalMemory("endRange");
+    String* literalString = new ASCIIStringFromExternalMemory("literal");
+
+    AtomicString typeAtom(state, "type", 4);
+    AtomicString valueAtom = state.context()->staticStrings().value;
+    AtomicString sourceAtom = state.context()->staticStrings().source;
+
+    std::pair<int32_t, int32_t> startRange{ -1, -1 };
+    std::pair<int32_t, int32_t> endRange{ -1, -1 };
+
+    auto createPart = [&](String* type, int32_t beginIndex, int32_t length) {
+        auto sourceType = [&](int32_t index) -> String* {
+            if (startRange.first <= index && index < startRange.second) {
+                return startRangeString;
+            }
+            if (endRange.first <= index && index < endRange.second) {
+                return endRangeString;
+            }
+            return sharedString;
+        };
+
+        auto value = new UTF16String(buffer.data() + beginIndex, length);
+        Object* part = new Object(state);
+        part->defineOwnPropertyThrowsException(state, ObjectPropertyName(typeAtom), ObjectPropertyDescriptor(type, ObjectPropertyDescriptor::AllPresent));
+        part->defineOwnPropertyThrowsException(state, ObjectPropertyName(valueAtom), ObjectPropertyDescriptor(value, ObjectPropertyDescriptor::AllPresent));
+        part->defineOwnPropertyThrowsException(state, ObjectPropertyName(sourceAtom), ObjectPropertyDescriptor(sourceType(beginIndex), ObjectPropertyDescriptor::AllPresent));
+        return part;
+    };
+
+    size_t resultIndex = 0;
+    int32_t resultLength = buffer.length();
+    int32_t previousEndIndex = 0;
+    while (true) {
+        bool next = ufmtval_nextPosition(formattedValue, iterator.get(), &status);
+        if (U_FAILURE(status)) {
+            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+            return parts;
+        }
+        if (!next) {
+            break;
+        }
+
+        int32_t category = ucfpos_getCategory(iterator.get(), &status);
+        if (U_FAILURE(status)) {
+            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+            return parts;
+        }
+
+        int32_t fieldType = ucfpos_getField(iterator.get(), &status);
+        if (U_FAILURE(status)) {
+            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+            return parts;
+        }
+
+        int32_t beginIndex = 0;
+        int32_t endIndex = 0;
+        ucfpos_getIndexes(iterator.get(), &beginIndex, &endIndex, &status);
+        if (U_FAILURE(status)) {
+            ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "failed to format DateIntervalFormat");
+            return parts;
+        }
+
+        if (previousEndIndex < beginIndex) {
+            Object* part = createPart(literalString, previousEndIndex, beginIndex - previousEndIndex);
+            parts->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, resultIndex++), ObjectPropertyDescriptor(part, ObjectPropertyDescriptor::AllPresent));
+            previousEndIndex = beginIndex;
+        }
+
+        if (category == UFIELD_CATEGORY_DATE_INTERVAL_SPAN) {
+            // > The special field category UFIELD_CATEGORY_DATE_INTERVAL_SPAN is used to indicate which datetime
+            // > primitives came from which arguments: 0 means fromCalendar, and 1 means toCalendar. The span category
+            // > will always occur before the corresponding fields in UFIELD_CATEGORY_DATE in the nextPosition() iterator.
+            // from ICU comment. So, field 0 is startRange, field 1 is endRange.
+            if (!fieldType) {
+                startRange = std::make_pair(beginIndex, endIndex);
+            } else {
+                ASSERT(fieldType == 1);
+                endRange = std::make_pair(beginIndex, endIndex);
+            }
+            continue;
+        }
+
+        ASSERT(category == UFIELD_CATEGORY_DATE);
+
+        auto type = icuFieldTypeToPartName(state, fieldType);
+        Object* part = createPart(type, beginIndex, endIndex - beginIndex);
+        parts->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, resultIndex++), ObjectPropertyDescriptor(part, ObjectPropertyDescriptor::AllPresent));
+        previousEndIndex = endIndex;
+    }
+
+    if (previousEndIndex < resultLength) {
+        Object* part = createPart(literalString, previousEndIndex, resultLength - previousEndIndex);
+        parts->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, resultIndex++), ObjectPropertyDescriptor(part, ObjectPropertyDescriptor::AllPresent));
+    }
+
+    return parts;
 }
 
 } // namespace Escargot

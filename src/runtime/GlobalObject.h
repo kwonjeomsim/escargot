@@ -120,7 +120,22 @@ class FunctionObject;
 #else
 #define GLOBALOBJECT_BUILTIN_INTL_LISTFORMAT(F, objName)
 #endif
-
+#if defined(ENABLE_INTL_DURATIONFORMAT)
+#define GLOBALOBJECT_BUILTIN_INTL_DURATIONFORMAT(F, objName) \
+    F(intlDurationFormat, FunctionObject, objName)           \
+    F(intlDurationFormatPrototype, Object, objName)
+#else
+#define GLOBALOBJECT_BUILTIN_INTL_DURATIONFORMAT(F, objName)
+#endif
+#if defined(ENABLE_INTL_SEGMENTER)
+#define GLOBALOBJECT_BUILTIN_INTL_SEGMENTER(F, objName) \
+    F(intlSegmenter, FunctionObject, objName)           \
+    F(intlSegmenterPrototype, Object, objName)          \
+    F(intlSegmentsPrototype, Object, objName)           \
+    F(intlSegmentsIteratorPrototype, Object, objName)
+#else
+#define GLOBALOBJECT_BUILTIN_INTL_SEGMENTER(F, objName)
+#endif
 #define GLOBALOBJECT_BUILTIN_INTL(F, objName)                \
     F(intl, Object, objName)                                 \
     F(intlCollator, FunctionObject, objName)                 \
@@ -132,7 +147,9 @@ class FunctionObject;
     GLOBALOBJECT_BUILTIN_INTL_NUMBERFORMAT(F, objName)       \
     GLOBALOBJECT_BUILTIN_INTL_PLURALRULES(F, objName)        \
     GLOBALOBJECT_BUILTIN_INTL_RELATIVETIMEFORMAT(F, objName) \
-    GLOBALOBJECT_BUILTIN_INTL_LISTFORMAT(F, objName)
+    GLOBALOBJECT_BUILTIN_INTL_LISTFORMAT(F, objName)         \
+    GLOBALOBJECT_BUILTIN_INTL_DURATIONFORMAT(F, objName)     \
+    GLOBALOBJECT_BUILTIN_INTL_SEGMENTER(F, objName)
 #else
 #define GLOBALOBJECT_BUILTIN_INTL(F, objName)
 #endif
@@ -190,6 +207,15 @@ class FunctionObject;
     F(set, FunctionObject, objName)          \
     F(setPrototypeObject, Object, objName)   \
     F(setIteratorPrototype, Object, objName)
+
+#if defined(ESCARGOT_ENABLE_SHADOWREALM)
+#define GLOBALOBJECT_BUILTIN_SHADOWREALM(F, objName) \
+    F(shadowRealm, FunctionObject, objName)          \
+    F(shadowRealmPrototype, Object, objName)
+#else
+#define GLOBALOBJECT_BUILTIN_SHADOWREALM(F, objName)
+#endif
+
 #define GLOBALOBJECT_BUILTIN_STRING(F, objName) \
     F(string, FunctionObject, objName)          \
     F(stringPrototype, Object, objName)         \
@@ -312,6 +338,7 @@ class FunctionObject;
     F(REFLECT, Reflect, ARG)                             \
     F(REGEXP, RegExp, ARG)                               \
     F(SET, Set, ARG)                                     \
+    F(SHADOWREALM, ShadowRealm, ARG)                     \
     F(SHAREDARRAYBUFFER, SharedArrayBuffer, ARG)         \
     F(STRING, String, ARG)                               \
     F(SYMBOL, Symbol, ARG)                               \
@@ -322,7 +349,6 @@ class FunctionObject;
     F(WEAKSET, WeakSet, ARG)                             \
     F(WEAKREF, WeakRef, ARG)                             \
     F(WASM, WebAssembly, ARG)
-
 
 #define DECLARE_BUILTIN_ALL_LIST(OBJNAME, objName, ARG) \
     GLOBALOBJECT_BUILTIN_##OBJNAME(ARG, objName)

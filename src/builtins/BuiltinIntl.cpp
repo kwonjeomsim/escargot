@@ -60,6 +60,8 @@
 #include "intl/IntlRelativeTimeFormat.h"
 #include "intl/IntlDisplayNames.h"
 #include "intl/IntlListFormat.h"
+#include "intl/IntlDurationFormat.h"
+#include "intl/IntlSegmenter.h"
 
 namespace Escargot {
 
@@ -139,9 +141,9 @@ static Value builtinIntlCollatorResolvedOptions(ExecutionState& state, Value thi
     result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().lazyUsage()), ObjectPropertyDescriptor(r.usage, ObjectPropertyDescriptor::AllPresent));
     result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().lazySensitivity()), ObjectPropertyDescriptor(r.sensitivity, ObjectPropertyDescriptor::AllPresent));
     result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().lazyIgnorePunctuation()), ObjectPropertyDescriptor(Value(r.ignorePunctuation), ObjectPropertyDescriptor::AllPresent));
-    result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().collation), ObjectPropertyDescriptor(r.collation, ObjectPropertyDescriptor::AllPresent));
-    result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().numeric), ObjectPropertyDescriptor(Value(r.numeric), ObjectPropertyDescriptor::AllPresent));
-    result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().caseFirst), ObjectPropertyDescriptor(Value(r.caseFirst), ObjectPropertyDescriptor::AllPresent));
+    result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().lazyCollation()), ObjectPropertyDescriptor(r.collation, ObjectPropertyDescriptor::AllPresent));
+    result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().lazyNumeric()), ObjectPropertyDescriptor(Value(r.numeric), ObjectPropertyDescriptor::AllPresent));
+    result->defineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().lazyCaseFirst()), ObjectPropertyDescriptor(Value(r.caseFirst), ObjectPropertyDescriptor::AllPresent));
     return result;
 }
 
@@ -247,6 +249,40 @@ static Value builtinIntlDateTimeFormatFormatToParts(ExecutionState& state, Value
     // Return ? FormatDateTimeToParts(dtf, x).
     return dtf->formatToParts(state, x);
 }
+
+static Value builtinIntlDateTimeFormatFormatRange(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlDateTimeFormatObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    if (argv[0].isUndefined() || argv[1].isUndefined()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "get invalid date value");
+    }
+
+    IntlDateTimeFormatObject* dtf = thisValue.asObject()->asIntlDateTimeFormatObject();
+    double x = argv[0].toNumber(state);
+    double y = argv[1].toNumber(state);
+    auto result = dtf->formatRange(state, x, y);
+    return Value(new UTF16String(result.data(), result.length()));
+}
+
+static Value builtinIntlDateTimeFormatFormatRangeToParts(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlDateTimeFormatObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    if (argv[0].isUndefined() || argv[1].isUndefined()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "get invalid date value");
+    }
+
+    IntlDateTimeFormatObject* dtf = thisValue.asObject()->asIntlDateTimeFormatObject();
+    double x = argv[0].toNumber(state);
+    double y = argv[1].toNumber(state);
+    return dtf->formatRangeToParts(state, x, y);
+}
+
 
 static void setFormatOpt(ExecutionState& state, Object* internalSlot, Object* result, String* prop)
 {
@@ -365,12 +401,12 @@ static Value builtinIntlNumberFormatFormatGetter(ExecutionState& state, Value th
 
     Object* internalSlot = thisValue.asObject()->internalSlot();
     FunctionObject* fn;
-    auto g = internalSlot->get(state, ObjectPropertyName(state.context()->staticStrings().format));
+    auto g = internalSlot->get(state, ObjectPropertyName(state.context()->staticStrings().lazyFormat()));
     if (g.hasValue()) {
         fn = g.value(state, internalSlot).asFunction();
     } else {
         fn = new NativeFunctionObject(state, NativeFunctionInfo(AtomicString(), builtinIntlNumberFormatFormat, 1, NativeFunctionInfo::Strict));
-        internalSlot->set(state, ObjectPropertyName(state.context()->staticStrings().format), Value(fn), internalSlot);
+        internalSlot->set(state, ObjectPropertyName(state.context()->staticStrings().lazyFormat()), Value(fn), internalSlot);
         fn->setInternalSlot(internalSlot);
     }
 
@@ -704,10 +740,11 @@ static Value builtinIntlLocaleConstructor(ExecutionState& state, Value thisValue
         tag = tagValue.toString(state);
     }
 
-    Optional<Object*> options;
+    Object* options;
     // If options is undefined, then
     if (argc <= 1 || argv[1].isUndefined()) {
         // Let options be ! ObjectCreate(null).
+        options = new Object(state, Object::PrototypeIsNull);
     } else {
         // Let options be ? ToObject(options).
         options = argv[1].toObject(state);
@@ -792,6 +829,18 @@ static Value builtinIntlLocaleHourCycleGetter(ExecutionState& state, Value thisV
     return loc.asObject()->asIntlLocaleObject()->hourCycle().hasValue() ? loc.asObject()->asIntlLocaleObject()->hourCycle().value() : Value();
 }
 
+static Value builtinIntlLocaleFirstDayOfWeekGetter(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    Value loc = thisValue;
+    // If Type(loc) is not Object or loc does not have an [[InitializedLocale]] internal slot, then
+    if (!loc.isObject() || !loc.asObject()->isIntlLocaleObject()) {
+        // Throw a TypeError exception.
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    return loc.asObject()->asIntlLocaleObject()->firstDayOfWeek().hasValue() ? loc.asObject()->asIntlLocaleObject()->firstDayOfWeek().value() : Value();
+}
+
 static Value builtinIntlLocaleNumericGetter(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     Value loc = thisValue;
@@ -801,7 +850,7 @@ static Value builtinIntlLocaleNumericGetter(ExecutionState& state, Value thisVal
         ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
     }
 
-    return loc.asObject()->asIntlLocaleObject()->numeric().hasValue() ? Value(loc.asObject()->asIntlLocaleObject()->numeric().value()->equals("true")) : Value(false);
+    return loc.asObject()->asIntlLocaleObject()->numeric().hasValue() ? Value(loc.asObject()->asIntlLocaleObject()->numeric().value()->equals("yes")) : Value(false);
 }
 
 static Value builtinIntlLocaleNumberingSystemGetter(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
@@ -837,7 +886,12 @@ static Value builtinIntlLocaleScriptGetter(ExecutionState& state, Value thisValu
         ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
     }
 
-    return loc.asObject()->asIntlLocaleObject()->script();
+    auto r = loc.asObject()->asIntlLocaleObject()->script();
+    if (r->length()) {
+        return r;
+    } else {
+        return Value();
+    }
 }
 
 static Value builtinIntlLocaleRegionGetter(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
@@ -849,7 +903,29 @@ static Value builtinIntlLocaleRegionGetter(ExecutionState& state, Value thisValu
         ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
     }
 
-    return loc.asObject()->asIntlLocaleObject()->region();
+    auto r = loc.asObject()->asIntlLocaleObject()->region();
+    if (r->length()) {
+        return r;
+    } else {
+        return Value();
+    }
+}
+
+static Value builtinIntlLocaleVariantsGetter(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    Value loc = thisValue;
+    // If Type(loc) is not Object or loc does not have an [[InitializedLocale]] internal slot, then
+    if (!loc.isObject() || !loc.asObject()->isIntlLocaleObject()) {
+        // Throw a TypeError exception.
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    auto r = loc.asObject()->asIntlLocaleObject()->variants();
+    if (r->length()) {
+        return r;
+    } else {
+        return Value();
+    }
 }
 
 static size_t icuLocleToBCP47Locale(char* buf, size_t len)
@@ -907,7 +983,7 @@ static Value builtinIntlLocaleMaximize(ExecutionState& state, Value thisValue, s
         StringBuilder sb;
         sb.appendString(buf, newLen);
         sb.appendSubString(locale, localeObject->baseName()->length(), locale->length());
-        return new IntlLocaleObject(state, sb.finalize(), nullptr);
+        return new IntlLocaleObject(state, sb.finalize(), new Object(state, Object::PrototypeIsNull));
 
     } else if (status != U_BUFFER_OVERFLOW_ERROR) {
         ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, "Unexpected error is occured while parsing locale");
@@ -921,7 +997,7 @@ static Value builtinIntlLocaleMaximize(ExecutionState& state, Value thisValue, s
     StringBuilder sb;
     sb.appendString(newBuf, newLen);
     sb.appendSubString(locale, localeObject->baseName()->length(), locale->length());
-    return new IntlLocaleObject(state, sb.finalize(), nullptr);
+    return new IntlLocaleObject(state, sb.finalize(), new Object(state, Object::PrototypeIsNull));
 }
 
 static Value builtinIntlLocaleMinimize(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
@@ -946,7 +1022,7 @@ static Value builtinIntlLocaleMinimize(ExecutionState& state, Value thisValue, s
         StringBuilder sb;
         sb.appendString(buf, newLen);
         sb.appendSubString(locale, localeObject->baseName()->length(), locale->length());
-        return new IntlLocaleObject(state, sb.finalize(), nullptr);
+        return new IntlLocaleObject(state, sb.finalize(), new Object(state, Object::PrototypeIsNull));
     } else if (status != U_BUFFER_OVERFLOW_ERROR) {
         ErrorObject::throwBuiltinError(state, ErrorCode::RangeError, "Unexpected error is occured while parsing locale");
     }
@@ -959,7 +1035,7 @@ static Value builtinIntlLocaleMinimize(ExecutionState& state, Value thisValue, s
     StringBuilder sb;
     sb.appendString(newBuf, newLen);
     sb.appendSubString(locale, localeObject->baseName()->length(), locale->length());
-    return new IntlLocaleObject(state, sb.finalize(), nullptr);
+    return new IntlLocaleObject(state, sb.finalize(), new Object(state, Object::PrototypeIsNull));
 }
 
 static Value builtinIntlLocaleCalendarsGetter(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
@@ -1058,8 +1134,8 @@ static Value builtinIntlRelativeTimeFormatResolvedOptions(ExecutionState& state,
 
     options->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazySmallLetterLocale()), ObjectPropertyDescriptor(r->locale(), ObjectPropertyDescriptor::AllPresent));
     options->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazyStyle()), ObjectPropertyDescriptor(r->style(), ObjectPropertyDescriptor::AllPresent));
-    options->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().numeric), ObjectPropertyDescriptor(r->numeric(), ObjectPropertyDescriptor::AllPresent));
-    options->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().numberingSystem), ObjectPropertyDescriptor(r->numberingSystem(), ObjectPropertyDescriptor::AllPresent));
+    options->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazyNumeric()), ObjectPropertyDescriptor(r->numeric(), ObjectPropertyDescriptor::AllPresent));
+    options->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->staticStrings().lazyNumberingSystem()), ObjectPropertyDescriptor(r->numberingSystem(), ObjectPropertyDescriptor::AllPresent));
 
     return options;
 }
@@ -1227,6 +1303,148 @@ static Value builtinIntlListFormatFormatToParts(ExecutionState& state, Value thi
     IntlListFormatObject* r = thisValue.asObject()->asIntlListFormatObject();
     return r->formatToParts(state, argv[0]);
 }
+#endif
+
+#if defined(ENABLE_INTL_DURATIONFORMAT)
+static Value builtinIntlDurationFormatConstructor(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // If NewTarget is undefined, throw a TypeError exception.
+    if (!newTarget) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ConstructorRequiresNew);
+        return Value();
+    }
+
+    Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* realm) -> Object* {
+        return realm->globalObject()->intlDurationFormatPrototype();
+    });
+    if (argc >= 2) {
+        return new IntlDurationFormatObject(state, proto, argv[0], argv[1]);
+    } else if (argc >= 1) {
+        return new IntlDurationFormatObject(state, proto, argv[0], Value());
+    } else {
+        return new IntlDurationFormatObject(state, proto, Value(), Value());
+    }
+}
+
+static Value builtinIntlDurationFormatResolvedOptions(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlDurationFormatObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    IntlDurationFormatObject* r = thisValue.asObject()->asIntlDurationFormatObject();
+    return r->resolvedOptions(state);
+}
+
+static Value builtinIntlDurationFormatFormat(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlDurationFormatObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    IntlDurationFormatObject* r = thisValue.asObject()->asIntlDurationFormatObject();
+    return r->format(state, argv[0]);
+}
+
+static Value builtinIntlDurationFormatFormatToParts(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlDurationFormatObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    IntlDurationFormatObject* r = thisValue.asObject()->asIntlDurationFormatObject();
+    return r->formatToParts(state, argv[0]);
+}
+
+static Value builtinIntlDurationFormatSupportedLocalesOf(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    Value locales = argv[0];
+    Value options;
+    if (argc >= 2) {
+        options = argv[1];
+    }
+    const auto& availableLocales = state.context()->vmInstance()->intlDurationFormatAvailableLocales();
+    ValueVector requestedLocales = Intl::canonicalizeLocaleList(state, locales);
+    return Intl::supportedLocales(state, availableLocales, requestedLocales, options);
+}
+
+#endif
+#if defined(ENABLE_INTL_SEGMENTER)
+static Value builtinIntlSegmenterConstructor(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // If NewTarget is undefined, throw a TypeError exception.
+    if (!newTarget) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, ErrorObject::Messages::GlobalObject_ConstructorRequiresNew);
+        return Value();
+    }
+
+    Object* proto = Object::getPrototypeFromConstructor(state, newTarget.value(), [](ExecutionState& state, Context* realm) -> Object* {
+        return realm->globalObject()->intlSegmenterPrototype();
+    });
+    if (argc >= 2) {
+        return new IntlSegmenterObject(state, proto, argv[0], argv[1]);
+    } else if (argc >= 1) {
+        return new IntlSegmenterObject(state, proto, argv[0], Value());
+    } else {
+        return new IntlSegmenterObject(state, proto, Value(), Value());
+    }
+}
+
+static Value builtinIntlSegmenterResolvedOptions(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlSegmenterObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    IntlSegmenterObject* r = thisValue.asObject()->asIntlSegmenterObject();
+    return r->resolvedOptions(state);
+}
+
+static Value builtinIntlSegmenterSupportedLocalesOf(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    Value locales = argv[0];
+    Value options;
+    if (argc >= 2) {
+        options = argv[1];
+    }
+    const auto& availableLocales = state.context()->vmInstance()->intlSegmenterAvailableLocales();
+    ValueVector requestedLocales = Intl::canonicalizeLocaleList(state, locales);
+    return Intl::supportedLocales(state, availableLocales, requestedLocales, options);
+}
+
+static Value builtinIntlSegmenterSegment(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlSegmenterObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+    return thisValue.asObject()->asIntlSegmenterObject()->segment(state, argv[0].toString(state));
+}
+
+static Value builtinIntlSegmentsIterator(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlSegmentsObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+
+    return thisValue.asObject()->asIntlSegmentsObject()->createIteratorObject(state);
+}
+
+static Value builtinIntlSegmentsContaining(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlSegmentsObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+    return thisValue.asObject()->asIntlSegmentsObject()->containing(state, argv[0]);
+}
+
+static Value builtinIntlSegmentsIteratorNext(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    if (!thisValue.isObject() || !thisValue.asObject()->isIntlSegmentsIteratorObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Method called on incompatible receiver");
+    }
+    return thisValue.asObject()->asIntlSegmentsIteratorObject()->next(state);
+}
+
 #endif
 
 static Value builtinIntlGetCanonicalLocales(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
@@ -1447,328 +1665,431 @@ void GlobalObject::installIntl(ExecutionState& state)
     redefineOwnProperty(state, ObjectPropertyName(strings->Intl),
                         ObjectPropertyDescriptor(m_intl, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intlCollator = new NativeFunctionObject(state, NativeFunctionInfo(strings->Collator, builtinIntlCollatorConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlCollator = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalCollator(), builtinIntlCollatorConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
     m_intlCollator->setGlobalIntrinsicObject(state);
     m_intlCollator->getFunctionPrototype(state).asObject()->setGlobalIntrinsicObject(state);
 
-    FunctionObject* compareFunction = new NativeFunctionObject(state, NativeFunctionInfo(strings->getCompare, builtinIntlCollatorCompareGetter, 0, NativeFunctionInfo::Strict));
-    m_intlCollator->getFunctionPrototype(state).asObject()->directDefineOwnProperty(state, state.context()->staticStrings().compare,
+    FunctionObject* compareFunction = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceCompare(), builtinIntlCollatorCompareGetter, 0, NativeFunctionInfo::Strict));
+    m_intlCollator->getFunctionPrototype(state).asObject()->directDefineOwnProperty(state, strings->lazyCompare(),
                                                                                     ObjectPropertyDescriptor(JSGetterSetter(compareFunction, Value(Value::EmptyValue)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intlCollator->getFunctionPrototype(state).asObject()->directDefineOwnProperty(state, state.context()->staticStrings().resolvedOptions,
-                                                                                    ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->resolvedOptions, builtinIntlCollatorResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlCollator->getFunctionPrototype(state).asObject()->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                                                    ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlCollatorResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
     m_intlCollator->getFunctionPrototype(state).asObject()->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
-                                                                                    ObjectPropertyDescriptor(strings->intlDotCollator.string(), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+                                                                                    ObjectPropertyDescriptor(strings->lazyIntlDotCollator().string(), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intlCollator->directDefineOwnProperty(state, state.context()->staticStrings().supportedLocalesOf,
-                                            ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->supportedLocalesOf, builtinIntlCollatorSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlCollator->directDefineOwnProperty(state, strings->lazySupportedLocalesOf(),
+                                            ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySupportedLocalesOf(), builtinIntlCollatorSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlDateTimeFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->DateTimeFormat, builtinIntlDateTimeFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlDateTimeFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalDateTimeFormat(), builtinIntlDateTimeFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
     m_intlDateTimeFormat->setGlobalIntrinsicObject(state);
     m_intlDateTimeFormatPrototype = m_intlDateTimeFormat->getFunctionPrototype(state).asObject();
     m_intlDateTimeFormatPrototype->setGlobalIntrinsicObject(state, true);
 
-    FunctionObject* formatFunction = new NativeFunctionObject(state, NativeFunctionInfo(strings->getFormat, builtinIntlDateTimeFormatFormatGetter, 0, NativeFunctionInfo::Strict));
-    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().format,
+    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
+                                                           ObjectPropertyDescriptor(strings->lazyIntlDotDateTimeFormat().string(), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+
+    FunctionObject* formatFunction = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceFormat(), builtinIntlDateTimeFormatFormatGetter, 0, NativeFunctionInfo::Strict));
+    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, strings->lazyFormat(),
                                                            ObjectPropertyDescriptor(JSGetterSetter(formatFunction, Value(Value::EmptyValue)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().lazyFormatToParts(),
+    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatToParts(),
                                                            ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatToParts(), builtinIntlDateTimeFormatFormatToParts, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().resolvedOptions,
-                                                           ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->resolvedOptions, builtinIntlDateTimeFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatRange(),
+                                                           ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatRange(), builtinIntlDateTimeFormatFormatRange, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlDateTimeFormat->directDefineOwnProperty(state, state.context()->staticStrings().supportedLocalesOf,
-                                                  ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->supportedLocalesOf, builtinIntlDateTimeFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatRangeToParts(),
+                                                           ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatRangeToParts(), builtinIntlDateTimeFormatFormatRangeToParts, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlDateTimeFormatPrototype->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                           ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlDateTimeFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlDateTimeFormat->directDefineOwnProperty(state, strings->lazySupportedLocalesOf(),
+                                                  ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySupportedLocalesOf(), builtinIntlDateTimeFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
 #if defined(ENABLE_INTL_NUMBERFORMAT)
-    m_intlNumberFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->NumberFormat, builtinIntlNumberFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlNumberFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalNumberFormat(), builtinIntlNumberFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
     m_intlNumberFormat->setGlobalIntrinsicObject(state);
     m_intlNumberFormatPrototype = m_intlNumberFormat->getFunctionPrototype(state).asObject();
     m_intlNumberFormatPrototype->setGlobalIntrinsicObject(state, true);
 
     {
-        formatFunction = new NativeFunctionObject(state, NativeFunctionInfo(strings->getFormat, builtinIntlNumberFormatFormatGetter, 0, NativeFunctionInfo::Strict));
+        formatFunction = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceFormat(), builtinIntlNumberFormatFormatGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(formatFunction, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlNumberFormatPrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->format), desc);
+        m_intlNumberFormatPrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyFormat()), desc);
     }
 
-    m_intlNumberFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().lazyFormatToParts(),
+    m_intlNumberFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatToParts(),
                                                          ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatToParts(), builtinIntlNumberFormatFormatToParts, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlNumberFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().lazyFormatRange(),
+    m_intlNumberFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatRange(),
                                                          ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatRange(), builtinIntlNumberFormatFormatRange, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlNumberFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().lazyFormatRangeToParts(),
+    m_intlNumberFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatRangeToParts(),
                                                          ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatRangeToParts(), builtinIntlNumberFormatFormatRangeToParts, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlNumberFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().resolvedOptions,
-                                                         ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->resolvedOptions, builtinIntlNumberFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlNumberFormatPrototype->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                         ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlNumberFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
     m_intlNumberFormatPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
-                                                         ObjectPropertyDescriptor(Value(state.context()->staticStrings().intlDotNumberFormat.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+                                                         ObjectPropertyDescriptor(Value(strings->lazyIntlDotNumberFormat().string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intlNumberFormat->directDefineOwnProperty(state, state.context()->staticStrings().supportedLocalesOf,
-                                                ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->supportedLocalesOf, builtinIntlNumberFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlNumberFormat->directDefineOwnProperty(state, strings->lazySupportedLocalesOf(),
+                                                ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySupportedLocalesOf(), builtinIntlNumberFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 #endif
 
 #if defined(ENABLE_INTL_PLURALRULES)
-    m_intlPluralRules = new NativeFunctionObject(state, NativeFunctionInfo(strings->PluralRules, builtinIntlPluralRulesConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlPluralRules = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalPluralRules(), builtinIntlPluralRulesConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
     m_intlPluralRules->setGlobalIntrinsicObject(state);
 
     m_intlPluralRulesPrototype = m_intlPluralRules->getFunctionPrototype(state).asObject();
     m_intlPluralRulesPrototype->setGlobalIntrinsicObject(state, true);
 
-    m_intlPluralRulesPrototype->directDefineOwnProperty(state, state.context()->staticStrings().select,
-                                                        ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->select, builtinIntlPluralRulesSelect, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlPluralRulesPrototype->directDefineOwnProperty(state, strings->lazySelect(),
+                                                        ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySelect(), builtinIntlPluralRulesSelect, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlPluralRulesPrototype->directDefineOwnProperty(state, state.context()->staticStrings().lazySelectRange(),
+    m_intlPluralRulesPrototype->directDefineOwnProperty(state, strings->lazySelectRange(),
                                                         ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySelectRange(), builtinIntlPluralRulesSelectRange, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlPluralRulesPrototype->directDefineOwnProperty(state, state.context()->staticStrings().resolvedOptions,
-                                                        ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->resolvedOptions, builtinIntlPluralRulesResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlPluralRulesPrototype->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                        ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlPluralRulesResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
     m_intlPluralRulesPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
-                                                        ObjectPropertyDescriptor(Value(state.context()->staticStrings().intlDotPluralRules.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+                                                        ObjectPropertyDescriptor(Value(strings->lazyIntlDotPluralRules().string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intlPluralRules->directDefineOwnProperty(state, state.context()->staticStrings().supportedLocalesOf,
-                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->supportedLocalesOf, builtinIntlPluralRulesSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlPluralRules->directDefineOwnProperty(state, strings->lazySupportedLocalesOf(),
+                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySupportedLocalesOf(), builtinIntlPluralRulesSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 #endif
 
-    m_intlLocale = new NativeFunctionObject(state, NativeFunctionInfo(strings->Locale, builtinIntlLocaleConstructor, 1), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlLocale = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalLocale(), builtinIntlLocaleConstructor, 1), NativeFunctionObject::__ForBuiltinConstructor__);
     m_intlLocale->setGlobalIntrinsicObject(state);
 
     m_intlLocalePrototype = m_intlLocale->getFunctionPrototype(state).asObject();
     m_intlLocalePrototype->setGlobalIntrinsicObject(state, true);
 
     m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
-                                                   ObjectPropertyDescriptor(Value(state.context()->staticStrings().intlDotLocale.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+                                                   ObjectPropertyDescriptor(Value(strings->lazyIntlDotLocale().string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getBaseName, builtinIntlLocaleBaseNameGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceBaseName(), builtinIntlLocaleBaseNameGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().baseName), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyBaseName()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getCalendar, builtinIntlLocaleCalendarGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceCalendar(), builtinIntlLocaleCalendarGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().calendar), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyCalendar()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getCaseFirst, builtinIntlLocaleCaseFirstGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceCaseFirst(), builtinIntlLocaleCaseFirstGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().caseFirst), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyCaseFirst()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getCollation, builtinIntlLocaleCollationGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceCollation(), builtinIntlLocaleCollationGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().collation), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyCollation()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getHourCycle, builtinIntlLocaleHourCycleGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceHourCycle(), builtinIntlLocaleHourCycleGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().hourCycle), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyHourCycle()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getNumeric, builtinIntlLocaleNumericGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceFirstDayOfWeek(), builtinIntlLocaleFirstDayOfWeekGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().numeric), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyFirstDayOfWeek()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getNumberingSystem, builtinIntlLocaleNumberingSystemGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceNumeric(), builtinIntlLocaleNumericGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().numberingSystem), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyNumeric()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getLanguage, builtinIntlLocaleLanguageGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceNumberingSystem(), builtinIntlLocaleNumberingSystemGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().language), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyNumberingSystem()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getScript, builtinIntlLocaleScriptGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceLanguage(), builtinIntlLocaleLanguageGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().script), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyLanguage()), desc);
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().getRegion, builtinIntlLocaleRegionGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceScript(), builtinIntlLocaleScriptGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
-        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, state.context()->staticStrings().region), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyScript()), desc);
     }
 
-    m_intlLocalePrototype->directDefineOwnProperty(state, state.context()->staticStrings().toString,
+    {
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceRegion(), builtinIntlLocaleRegionGetter, 0, NativeFunctionInfo::Strict));
+        JSGetterSetter gs(getter, Value());
+        ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyRegion()), desc);
+    }
+
+    {
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceVariants(), builtinIntlLocaleVariantsGetter, 0, NativeFunctionInfo::Strict));
+        JSGetterSetter gs(getter, Value());
+        ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
+        m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyVariants()), desc);
+    }
+
+    m_intlLocalePrototype->directDefineOwnProperty(state, strings->toString,
                                                    ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->toString, builtinIntlLocaleToString, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlLocalePrototype->directDefineOwnProperty(state, state.context()->staticStrings().maximize,
-                                                   ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->maximize, builtinIntlLocaleMaximize, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyMaximize(),
+                                                   ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyMaximize(), builtinIntlLocaleMaximize, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlLocalePrototype->directDefineOwnProperty(state, state.context()->staticStrings().minimize,
-                                                   ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->minimize, builtinIntlLocaleMinimize, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyMinimize(),
+                                                   ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyMinimize(), builtinIntlLocaleMinimize, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->getCalendars, builtinIntlLocaleCalendarsGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceCalendars(), builtinIntlLocaleCalendarsGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
         m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyCalendars()), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyGetCalendars(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetCalendars(), builtinIntlLocaleCalendarsGetter, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->getCollations, builtinIntlLocaleCollationsGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceCollations(), builtinIntlLocaleCollationsGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
         m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyCollations()), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyGetCollations(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetCollations(), builtinIntlLocaleCollationsGetter, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->getHourCycles, builtinIntlLocaleHourCyclesGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceHourCycles(), builtinIntlLocaleHourCyclesGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
         m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyHourCycles()), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyGetHourCycles(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetHourCycles(), builtinIntlLocaleHourCyclesGetter, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->getNumberingSystems, builtinIntlLocaleNumberingSystemsGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceNumberingSystems(), builtinIntlLocaleNumberingSystemsGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
         m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyNumberingSystems()), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyGetNumberingSystems(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetNumberingSystems(), builtinIntlLocaleNumberingSystemsGetter, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->getTextInfo, builtinIntlLocaleTextInfoGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceTextInfo(), builtinIntlLocaleTextInfoGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
         m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyTextInfo()), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyGetTextInfo(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetTextInfo(), builtinIntlLocaleTextInfoGetter, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->getWeekInfo, builtinIntlLocaleWeekInfoGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceWeekInfo(), builtinIntlLocaleWeekInfoGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
         m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyWeekInfo()), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyGetWeekInfo(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetWeekInfo(), builtinIntlLocaleWeekInfoGetter, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
     }
 
     {
-        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->getTimeZones, builtinIntlLocaleTimeZonesGetter, 0, NativeFunctionInfo::Strict));
+        Value getter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetSpaceTimeZones(), builtinIntlLocaleTimeZonesGetter, 0, NativeFunctionInfo::Strict));
         JSGetterSetter gs(getter, Value());
         ObjectPropertyDescriptor desc(gs, ObjectPropertyDescriptor::ConfigurablePresent);
         m_intlLocalePrototype->directDefineOwnProperty(state, ObjectPropertyName(state, strings->lazyTimeZones()), desc);
+        m_intlLocalePrototype->directDefineOwnProperty(state, strings->lazyGetTimeZones(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetTimeZones(), builtinIntlLocaleTimeZonesGetter, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
     }
 
 #if defined(ENABLE_INTL_RELATIVETIMEFORMAT)
-    m_intlRelativeTimeFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->RelativeTimeFormat, builtinIntlRelativeTimeFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlRelativeTimeFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalRelativeTimeFormat(), builtinIntlRelativeTimeFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
     m_intlRelativeTimeFormat->setGlobalIntrinsicObject(state);
 
     m_intlRelativeTimeFormatPrototype = m_intlRelativeTimeFormat->getFunctionPrototype(state).asObject();
     m_intlRelativeTimeFormatPrototype->setGlobalIntrinsicObject(state, true);
 
     m_intlRelativeTimeFormatPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
-                                                               ObjectPropertyDescriptor(Value(state.context()->staticStrings().intlDotRelativeTimeFormat.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+                                                               ObjectPropertyDescriptor(Value(strings->lazyIntlDotRelativeTimeFormat().string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intlRelativeTimeFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().format,
-                                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->format, builtinIntlRelativeTimeFormatFormat, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlRelativeTimeFormatPrototype->directDefineOwnProperty(state, strings->lazyFormat(),
+                                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormat(), builtinIntlRelativeTimeFormatFormat, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlRelativeTimeFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().lazyFormatToParts(),
+    m_intlRelativeTimeFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatToParts(),
                                                                ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatToParts(), builtinIntlRelativeTimeFormatFormatToParts, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlRelativeTimeFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().resolvedOptions,
-                                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->resolvedOptions, builtinIntlRelativeTimeFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlRelativeTimeFormatPrototype->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlRelativeTimeFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlRelativeTimeFormat->directDefineOwnProperty(state, state.context()->staticStrings().supportedLocalesOf,
-                                                      ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->supportedLocalesOf, builtinIntlRelativeTimeFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlRelativeTimeFormat->directDefineOwnProperty(state, strings->lazySupportedLocalesOf(),
+                                                      ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySupportedLocalesOf(), builtinIntlRelativeTimeFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 #endif
 
 #if defined(ENABLE_INTL_DISPLAYNAMES)
-    m_intlDisplayNames = new NativeFunctionObject(state, NativeFunctionInfo(strings->DisplayNames, builtinIntlDisplayNamesConstructor, 2), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlDisplayNames = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalDisplayNames(), builtinIntlDisplayNamesConstructor, 2), NativeFunctionObject::__ForBuiltinConstructor__);
     m_intlDisplayNames->setGlobalIntrinsicObject(state);
 
     m_intlDisplayNamesPrototype = m_intlDisplayNames->getFunctionPrototype(state).asObject();
     m_intlDisplayNamesPrototype->setGlobalIntrinsicObject(state, true);
 
     m_intlDisplayNamesPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
-                                                         ObjectPropertyDescriptor(Value(strings->intlDotDisplayNames.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+                                                         ObjectPropertyDescriptor(Value(strings->lazyIntlDotDisplayNames().string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intlDisplayNamesPrototype->directDefineOwnProperty(state, state.context()->staticStrings().of,
+    m_intlDisplayNamesPrototype->directDefineOwnProperty(state, strings->of,
                                                          ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->of, builtinIntlDisplayNamesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlDisplayNamesPrototype->directDefineOwnProperty(state, state.context()->staticStrings().resolvedOptions,
-                                                         ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->resolvedOptions, builtinIntlDisplayNamesResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlDisplayNamesPrototype->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                         ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlDisplayNamesResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 #endif
 
 #if defined(ENABLE_INTL_LISTFORMAT)
-    m_intlListFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->ListFormat, builtinIntlListFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlListFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalListFormat(), builtinIntlListFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
     m_intlListFormat->setGlobalIntrinsicObject(state);
 
-    m_intlListFormat->directDefineOwnProperty(state, state.context()->staticStrings().supportedLocalesOf,
-                                              ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->supportedLocalesOf, builtinIntlListFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlListFormat->directDefineOwnProperty(state, strings->lazySupportedLocalesOf(),
+                                              ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySupportedLocalesOf(), builtinIntlListFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
     m_intlListFormatPrototype = m_intlListFormat->getFunctionPrototype(state).asObject();
     m_intlListFormatPrototype->setGlobalIntrinsicObject(state, true);
 
-    m_intlListFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().resolvedOptions,
-                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->resolvedOptions, builtinIntlListFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlListFormatPrototype->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlListFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlListFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().format,
-                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->format, builtinIntlListFormatFormat, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+    m_intlListFormatPrototype->directDefineOwnProperty(state, strings->lazyFormat(),
+                                                       ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormat(), builtinIntlListFormatFormat, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
-    m_intlListFormatPrototype->directDefineOwnProperty(state, state.context()->staticStrings().lazyFormatToParts(),
+    m_intlListFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatToParts(),
                                                        ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatToParts(), builtinIntlListFormatFormatToParts, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
 
     m_intlListFormatPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
-                                                       ObjectPropertyDescriptor(Value(strings->intlDotListFormat.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
-
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
-                                    ObjectPropertyDescriptor(Value(state.context()->staticStrings().Intl.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+                                                       ObjectPropertyDescriptor(Value(strings->lazyIntlDotListFormat().string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
 #endif
 
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->Collator),
+#if defined(ENABLE_INTL_DURATIONFORMAT)
+    m_intlDurationFormat = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalDurationFormat(), builtinIntlDurationFormatConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlDurationFormat->setGlobalIntrinsicObject(state);
+
+    m_intlDurationFormat->directDefineOwnProperty(state, strings->lazySupportedLocalesOf(),
+                                                  ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySupportedLocalesOf(), builtinIntlDurationFormatSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlDurationFormatPrototype = m_intlDurationFormat->getFunctionPrototype(state).asObject();
+    m_intlDurationFormatPrototype->setGlobalIntrinsicObject(state, true);
+
+    m_intlDurationFormatPrototype->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                           ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlDurationFormatResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlDurationFormatPrototype->directDefineOwnProperty(state, strings->lazyFormat(),
+                                                           ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormat(), builtinIntlDurationFormatFormat, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlDurationFormatPrototype->directDefineOwnProperty(state, strings->lazyFormatToParts(),
+                                                           ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyFormatToParts(), builtinIntlDurationFormatFormatToParts, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlDurationFormatPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
+                                                           ObjectPropertyDescriptor(Value(strings->lazyIntlDotDurationFormat().string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+#endif
+#if defined(ENABLE_INTL_SEGMENTER)
+    m_intlSegmenter = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyCapitalSegmenter(), builtinIntlSegmenterConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
+    m_intlSegmenter->setGlobalIntrinsicObject(state);
+
+    m_intlSegmenter->directDefineOwnProperty(state, strings->lazySupportedLocalesOf(),
+                                             ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySupportedLocalesOf(), builtinIntlSegmenterSupportedLocalesOf, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlSegmenterPrototype = m_intlSegmenter->getFunctionPrototype(state).asObject();
+    m_intlSegmenterPrototype->setGlobalIntrinsicObject(state, true);
+
+    m_intlSegmenterPrototype->directDefineOwnProperty(state, strings->lazyResolvedOptions(),
+                                                      ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyResolvedOptions(), builtinIntlSegmenterResolvedOptions, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlSegmenterPrototype->directDefineOwnProperty(state, strings->lazySegment(),
+                                                      ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazySegment(), builtinIntlSegmenterSegment, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlSegmenterPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
+                                                      ObjectPropertyDescriptor(Value(strings->lazyIntlDotSegmenter().string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+
+    m_intlSegmentsPrototype = new PrototypeObject(state, m_objectPrototype);
+    m_intlSegmentsPrototype->setGlobalIntrinsicObject(state, true);
+
+    m_intlSegmentsPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().iterator),
+                                                     ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->symbolIterator, builtinIntlSegmentsIterator, 0, NativeFunctionInfo::Strict)),
+                                                                              (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
+
+    m_intlSegmentsPrototype->directDefineOwnProperty(state, strings->lazyContaining(),
+                                                     ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyContaining(), builtinIntlSegmentsContaining, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent | ObjectPropertyDescriptor::WritablePresent)));
+
+    m_intlSegmentsIteratorPrototype = new PrototypeObject(state, m_iteratorPrototype);
+    m_intlSegmentsIteratorPrototype->setGlobalIntrinsicObject(state, true);
+
+    m_intlSegmentsIteratorPrototype->directDefineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().next),
+                                                             ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(state.context()->staticStrings().next, builtinIntlSegmentsIteratorNext, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
+#endif
+
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().toStringTag),
+                                    ObjectPropertyDescriptor(Value(strings->Intl.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::ConfigurablePresent)));
+
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalCollator()),
                                     ObjectPropertyDescriptor(m_intlCollator, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->DateTimeFormat),
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalDateTimeFormat()),
                                     ObjectPropertyDescriptor(m_intlDateTimeFormat, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 #if defined(ENABLE_INTL_NUMBERFORMAT)
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->NumberFormat),
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalNumberFormat()),
                                     ObjectPropertyDescriptor(m_intlNumberFormat, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 #endif
 #if defined(ENABLE_INTL_PLURALRULES)
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->PluralRules),
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalPluralRules()),
                                     ObjectPropertyDescriptor(m_intlPluralRules, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 #endif
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->Locale),
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalLocale()),
                                     ObjectPropertyDescriptor(m_intlLocale, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 #if defined(ENABLE_INTL_RELATIVETIMEFORMAT)
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->RelativeTimeFormat),
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalRelativeTimeFormat()),
                                     ObjectPropertyDescriptor(m_intlRelativeTimeFormat, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 #endif
 #if defined(ENABLE_INTL_DISPLAYNAMES)
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->DisplayNames),
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalDisplayNames()),
                                     ObjectPropertyDescriptor(m_intlDisplayNames, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 #endif
 #if defined(ENABLE_INTL_LISTFORMAT)
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->ListFormat),
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalListFormat()),
                                     ObjectPropertyDescriptor(m_intlListFormat, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 #endif
-    FunctionObject* getCanonicalLocales = new NativeFunctionObject(state, NativeFunctionInfo(strings->getCanonicalLocales, builtinIntlGetCanonicalLocales, 1, NativeFunctionInfo::Strict));
-    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->getCanonicalLocales),
+#if defined(ENABLE_INTL_DURATIONFORMAT)
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalDurationFormat()),
+                                    ObjectPropertyDescriptor(m_intlDurationFormat, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
+#endif
+#if defined(ENABLE_INTL_SEGMENTER)
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyCapitalSegmenter()),
+                                    ObjectPropertyDescriptor(m_intlSegmenter, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
+#endif
+    FunctionObject* getCanonicalLocales = new NativeFunctionObject(state, NativeFunctionInfo(strings->lazyGetCanonicalLocales(), builtinIntlGetCanonicalLocales, 1, NativeFunctionInfo::Strict));
+    m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazyGetCanonicalLocales()),
                                     ObjectPropertyDescriptor(getCanonicalLocales, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 
     m_intl->directDefineOwnProperty(state, ObjectPropertyName(strings->lazySupportedValuesOf()),
