@@ -84,6 +84,7 @@
     F(RangeErrorObject)            \
     F(ReferenceErrorObject)        \
     F(SyntaxErrorObject)           \
+    F(SuppressedErrorObject)       \
     F(TypeErrorObject)             \
     F(URIErrorObject)
 
@@ -185,6 +186,9 @@ public:
     static bool gcHasFinalizer(SymbolRef* ptr, GCAllocatedMemoryFinalizer callback, void* data);
 
     static void gc();
+
+    static void disableGC();
+    static void enableGC();
 
     static size_t heapSize(); // Return the number of bytes in the heap.  Excludes bdwgc private data structures. Excludes the unmapped memory
     static size_t totalSize(); // Return the total number of bytes allocated in this process
@@ -758,6 +762,8 @@ public:
     SymbolRef* replaceSymbol();
     SymbolRef* splitSymbol();
     SymbolRef* asyncIteratorSymbol();
+    SymbolRef* disposeSymbol();
+    SymbolRef* asyncDisposeSymbol();
 
     bool hasPendingJob();
     Evaluator::EvaluatorResult executePendingJob();
@@ -1506,6 +1512,8 @@ public:
     ObjectRef* evalErrorPrototype();
     FunctionObjectRef* aggregateError();
     ObjectRef* aggregateErrorPrototype();
+    FunctionObjectRef* suppressedError();
+    ObjectRef* suppressedErrorPrototype();
     FunctionObjectRef* string();
     ObjectRef* stringPrototype();
     FunctionObjectRef* number();
@@ -1678,6 +1686,7 @@ public:
         URIError,
         EvalError,
         AggregateError,
+        SuppressedError,
     };
     static ErrorObjectRef* create(ExecutionStateRef* state, ErrorObjectRef::Code code, StringRef* errorMessage);
     void updateStackTraceData(ExecutionStateRef* state); // update stacktrace data
@@ -1716,6 +1725,11 @@ public:
 class ESCARGOT_EXPORT AggregateErrorObjectRef : public ErrorObjectRef {
 public:
     static AggregateErrorObjectRef* create(ExecutionStateRef* state, StringRef* errorMessage);
+};
+
+class ESCARGOT_EXPORT SuppressedErrorObjectRef : public ErrorObjectRef {
+public:
+    static SuppressedErrorObjectRef* create(ExecutionStateRef* state, StringRef* errorMessage, ValueRef* error, ValueRef* suppressed);
 };
 
 class ESCARGOT_EXPORT DateObjectRef : public ObjectRef {
@@ -2219,7 +2233,7 @@ public:
     {
         return calloc(sizeInByte, 1);
     }
-    virtual void onFreeArrayBufferObjectDataBuffer(void* buffer, size_t sizeInByte)
+    virtual void onFreeArrayBufferObjectDataBuffer(void* buffer, size_t sizeInByte, void* deleterData)
     {
         return free(buffer);
     }

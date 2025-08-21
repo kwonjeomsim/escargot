@@ -168,6 +168,7 @@ void* VMInstance::operator new(size_t size)
         GC_set_bit(desc, GC_WORD_OFFSET(VMInstance, m_defaultStructureForBoundFunctionObject));
         GC_set_bit(desc, GC_WORD_OFFSET(VMInstance, m_defaultStructureForClassConstructorFunctionObject));
         GC_set_bit(desc, GC_WORD_OFFSET(VMInstance, m_defaultStructureForClassConstructorFunctionObjectWithName));
+        GC_set_bit(desc, GC_WORD_OFFSET(VMInstance, m_defaultStructureForWrappedFunctionObject));
         GC_set_bit(desc, GC_WORD_OFFSET(VMInstance, m_defaultStructureForStringObject));
         GC_set_bit(desc, GC_WORD_OFFSET(VMInstance, m_defaultStructureForRegExpObject));
         GC_set_bit(desc, GC_WORD_OFFSET(VMInstance, m_defaultStructureForMappedArgumentsObject));
@@ -473,6 +474,10 @@ VMInstance::VMInstance(const char* locale, const char* timezone, const char* bas
     m_defaultStructureForClassConstructorFunctionObjectWithName = m_defaultStructureForClassConstructorFunctionObjectWithName->addProperty(m_staticStrings.prototype,
                                                                                                                                            ObjectStructurePropertyDescriptor::createDataButHasNativeGetterSetterDescriptor(&builtinFunctionPrototypeNativeGetterSetterData));
 
+    m_defaultStructureForWrappedFunctionObject = m_defaultStructureForObject->addProperty(m_staticStrings.length,
+                                                                                          ObjectStructurePropertyDescriptor::createDataDescriptor(ObjectStructurePropertyDescriptor::ConfigurablePresent));
+    m_defaultStructureForWrappedFunctionObject = m_defaultStructureForWrappedFunctionObject->addProperty(m_staticStrings.name,
+                                                                                                         ObjectStructurePropertyDescriptor::createDataDescriptor(ObjectStructurePropertyDescriptor::ConfigurablePresent));
 
     m_defaultStructureForStringObject = m_defaultStructureForObject->addProperty(m_staticStrings.length, ObjectStructurePropertyDescriptor::createDataButHasNativeGetterSetterDescriptor(&stringLengthGetterSetterData));
 
@@ -527,13 +532,23 @@ static std::string findTimezone()
 #else
 static std::string findTimezone()
 {
-    auto tz = icu::TimeZone::detectHostTimeZone();
-    icu::UnicodeString id;
-    tz->getID(id);
-    delete tz;
-    std::string r;
-    id.toUTF8String(r);
-    return r;
+    UChar result[256];
+    UErrorCode status = U_ZERO_ERROR;
+    int32_t len = ucal_getHostTimeZone(result, sizeof(result) / sizeof(UChar), &status);
+    if (U_SUCCESS(status)) {
+        std::string u8Result;
+        for (int32_t i = 0; i < len; i++) {
+            u8Result.push_back(result[i]);
+        }
+        return u8Result;
+    }
+
+    // fallback
+    time_t t;
+    tm lt;
+    t = time(NULL);
+    localtime_r(&t, &lt);
+    return lt.tm_zone;
 }
 #endif
 
@@ -952,6 +967,18 @@ const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& VMInstance::intlDis
 }
 
 const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& VMInstance::intlListFormatAvailableLocales()
+{
+    ensureIntlSupportedLocales();
+    return m_intlAvailableLocales;
+}
+
+const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& VMInstance::intlDurationFormatAvailableLocales()
+{
+    ensureIntlSupportedLocales();
+    return m_intlAvailableLocales;
+}
+
+const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& VMInstance::intlSegmenterAvailableLocales()
 {
     ensureIntlSupportedLocales();
     return m_intlAvailableLocales;

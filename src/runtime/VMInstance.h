@@ -47,6 +47,7 @@ class CodeCache;
     F(hasInstance)               \
     F(isConcatSpreadable)        \
     F(iterator)                  \
+    F(asyncIterator)             \
     F(species)                   \
     F(split)                     \
     F(toPrimitive)               \
@@ -56,7 +57,8 @@ class CodeCache;
     F(match)                     \
     F(matchAll)                  \
     F(replace)                   \
-    F(asyncIterator)
+    F(dispose)                   \
+    F(asyncDispose)
 
 struct GlobalSymbols {
 #define DECLARE_GLOBAL_SYMBOLS(name) Symbol* name;
@@ -386,6 +388,8 @@ public:
     const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& intlDisplayNamesAvailableLocales();
     const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& intlListFormatAvailableLocales();
     const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& intlPluralRulesAvailableLocales();
+    const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& intlDurationFormatAvailableLocales();
+    const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& intlSegmenterAvailableLocales();
     const Vector<String*, GCUtil::gc_malloc_allocator<String*>>& caseMappingAvailableLocales();
 #endif
 
@@ -444,6 +448,7 @@ private:
     ObjectStructure* m_defaultStructureForBoundFunctionObject;
     ObjectStructure* m_defaultStructureForClassConstructorFunctionObject;
     ObjectStructure* m_defaultStructureForClassConstructorFunctionObjectWithName;
+    ObjectStructure* m_defaultStructureForWrappedFunctionObject;
     ObjectStructure* m_defaultStructureForStringObject;
     ObjectStructure* m_defaultStructureForRegExpObject;
     ObjectStructure* m_defaultStructureForMappedArgumentsObject;

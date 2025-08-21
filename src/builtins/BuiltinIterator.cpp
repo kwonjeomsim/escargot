@@ -23,8 +23,28 @@
 #include "runtime/VMInstance.h"
 #include "runtime/NativeFunctionObject.h"
 #include "runtime/ArrayObject.h"
+#include "runtime/PromiseObject.h"
 
 namespace Escargot {
+
+// https://tc39.es/ecma262/#sec-iterator.from
+static Value builtinIteratorFrom(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // Let iteratorRecord be ? GetIteratorFlattenable(O, iterate-string-primitives).
+    auto iteratorRecord = IteratorObject::getIteratorFlattenable(state, argv[0], IteratorObject::PrimitiveHandling::IterateStringPrimitives);
+    // Let hasInstance be ? OrdinaryHasInstance(%Iterator%, iteratorRecord.[[Iterator]]).
+    auto hasInstance = state.context()->globalObject()->iterator()->hasInstance(state, iteratorRecord->m_iterator);
+    // If hasInstance is true, then
+    if (hasInstance) {
+        // Return iteratorRecord.[[Iterator]].
+        return iteratorRecord->m_iterator;
+    }
+    // Let wrapper be OrdinaryObjectCreate(%WrapForValidIteratorPrototype%, « [[Iterated]] »).
+    // Set wrapper.[[Iterated]] to iteratorRecord.
+    auto wrapper = new WrapForValidIteratorObject(state, state.context()->globalObject()->wrapForValidIteratorPrototype(), iteratorRecord);
+    // Return wrapper.
+    return wrapper;
+}
 
 // https://tc39.es/proposal-iterator-helpers/#sec-iterator-constructor
 static Value builtinIteratorConstructor(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
@@ -132,6 +152,17 @@ struct IteratorData : public gc {
     {
     }
 };
+struct FlatMapIteratorData : public IteratorData {
+    IteratorRecord* innerIterator;
+    bool innerAlive;
+
+    FlatMapIteratorData(Value mapper)
+        : IteratorData(mapper)
+        , innerIterator(nullptr)
+        , innerAlive(false)
+    {
+    }
+};
 
 static std::pair<Value, bool> iteratorMapClosure(ExecutionState& state, IteratorHelperObject* obj, void* data)
 {
@@ -188,6 +219,75 @@ static Value builtinIteratorMap(ExecutionState& state, Value thisValue, size_t a
     IteratorHelperObject* result = new IteratorHelperObject(state, iteratorMapClosure, iterated, new IteratorData(mapper));
     // Return result.
     return result;
+}
+
+static Value builtinIteratorDispose(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // Let O be the this value.
+    const Value& O = thisValue;
+    // Let return be ? GetMethod(O, "return").
+    Value returnValue = Object::getMethod(state, O, state.context()->staticStrings().stringReturn);
+    // If return is not undefined, then
+    if (!returnValue.isUndefined()) {
+        // Perform ? Call(return, O, « »).
+        Object::call(state, returnValue, O, 0, nullptr);
+    }
+    // Return NormalCompletion(empty).
+    return Value();
+}
+
+static Value builtinIteratorAsyncDispose(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // Let O be the this value.
+    const Value& O = thisValue;
+    // Let promiseCapability be ! NewPromiseCapability(%Promise%).
+    auto promiseCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    // Let return be Completion(GetMethod(O, "return")).
+    Value returnValue;
+    try {
+        returnValue = Object::getMethod(state, O, state.context()->staticStrings().stringReturn);
+    } catch (const Value& error) {
+        // IfAbruptRejectPromise(return, promiseCapability).
+        Value arg = error;
+        Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &arg);
+        return promiseCapability.m_promise;
+    }
+    // If return is undefined, then
+    if (returnValue.isUndefined()) {
+        // Perform ! Call(promiseCapability.[[Resolve]], undefined, « undefined »).
+        Object::call(state, promiseCapability.m_resolveFunction, Value(), 1, &returnValue);
+    } else {
+        // Else,
+        // Let result be Completion(Call(return, O, « undefined »)).
+        Value result;
+        try {
+            Value argv;
+            result = Object::call(state, returnValue, Value(), 1, &argv);
+        } catch (const Value& error) {
+            // IfAbruptRejectPromise(result, promiseCapability).
+            Value arg = error;
+            Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &arg);
+            return promiseCapability.m_promise;
+        }
+        // Let resultWrapper be Completion(PromiseResolve(%Promise%, result)).
+        Value resultWrapper;
+        try {
+            resultWrapper = PromiseObject::promiseResolve(state, state.context()->globalObject()->promise(), result);
+        } catch (const Value& error) {
+            // IfAbruptRejectPromise(resultWrapper, promiseCapability).
+            Value arg = error;
+            Object::call(state, promiseCapability.m_rejectFunction, Value(), 1, &arg);
+            return promiseCapability.m_promise;
+        }
+        // Let unwrap be a new Abstract Closure that performs the following steps when called:
+        // i. Return undefined.
+        // Let onFulfilled be CreateBuiltinFunction(unwrap, 1, "", « »).
+        Value onFulfilled = new NativeFunctionObject(state, NativeFunctionInfo(AtomicString(), [](ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget) -> Value { return Value(); }, 1, NativeFunctionInfo::Strict));
+        // Perform PerformPromiseThen(resultWrapper, onFulfilled, undefined, promiseCapability).
+        promiseCapability.m_promise->asPromiseObject()->then(state, onFulfilled, Value());
+    }
+    // Return promiseCapability.[[Promise]].
+    return promiseCapability.m_promise;
 }
 
 static std::pair<Value, bool> iteratorFilterClosure(ExecutionState& state, IteratorHelperObject* obj, void* data)
@@ -739,6 +839,117 @@ static Value builtinIteratorToArray(ExecutionState& state, Value thisValue, size
     }
 }
 
+static std::pair<Value, bool> iteratorFlatMapClosure(ExecutionState& state, IteratorHelperObject* obj, void* data)
+{
+    //    Let closure be a new Abstract Closure with no parameters that captures iterated and mapper and performs the following steps when called:
+    //    a. Let counter be 0.
+    //    b. Repeat,
+    //       i. Let value be ? IteratorStepValue(iterated).
+    //       ii. If value is done, return ReturnCompletion(undefined).
+    //       iii. Let mapped be Completion(Call(mapper, undefined, « value, 𝔽(counter) »)).
+    //       iv. IfAbruptCloseIterator(mapped, iterated).
+    //       v. Let innerIterator be Completion(GetIteratorFlattenable(mapped, reject-primitives)).
+    //       vi. IfAbruptCloseIterator(innerIterator, iterated).
+    //       vii. Let innerAlive be true.
+    //       viii. Repeat, while innerAlive is true,
+    //             1. Let innerValue be Completion(IteratorStepValue(innerIterator)).
+    //             2. IfAbruptCloseIterator(innerValue, iterated).
+    //             3. If innerValue is done, then
+    //                a. Set innerAlive to false.
+    //             4. Else,
+    //                a. Let completion be Completion(Yield(innerValue)).
+    //                b. If completion is an abrupt completion, then
+    //                   i. Let backupCompletion be Completion(IteratorClose(innerIterator, completion)).
+    //                   ii. IfAbruptCloseIterator(backupCompletion, iterated).
+    //                   iii. Return ? IteratorClose(iterated, completion).
+    //       ix. Set counter to counter + 1.
+    IteratorRecord* iterated = obj->underlyingIterator();
+    FlatMapIteratorData* closureData = reinterpret_cast<FlatMapIteratorData*>(data);
+    Value mapper = closureData->callback;
+
+    while (true) {
+        // while innerAlive is true, Let innerValue be Completion(IteratorStepValue(innerIterator)).
+        if (closureData->innerAlive && closureData->innerIterator) {
+            Optional<Value> innerValue;
+            try {
+                innerValue = IteratorObject::iteratorStepValue(state, closureData->innerIterator);
+            } catch (const Value& e) {
+                // IfAbruptCloseIterator(innerValue, iterated).
+                IteratorObject::iteratorClose(state, obj->underlyingIterator(), e, true);
+            }
+            if (!innerValue) {
+                // If innerValue is done, then Set innerAlive to false.
+                closureData->innerAlive = false;
+                closureData->innerIterator = nullptr;
+            } else {
+                // Else, Let completion be Completion(Yield(innerValue)).
+                return std::make_pair(innerValue.value(), false);
+            }
+        }
+
+        // Let value be ? IteratorStepValue(iterated).
+        auto value = IteratorObject::iteratorStepValue(state, iterated);
+        // If value is done, return ReturnCompletion(undefined).
+        if (!value) {
+            iterated->m_done = true;
+            return std::make_pair(Value(), true);
+        }
+
+        // Let mapped be Completion(Call(mapper, undefined, « value, 𝔽(counter) »)).
+        Value args[2] = { value.value(), Value(closureData->counter) };
+        Value mapped;
+
+        try {
+            mapped = Object::call(state, mapper, Value(), 2, args);
+        } catch (const Value& e) {
+            // IfAbruptCloseIterator(mapped, iterated).
+            IteratorObject::iteratorClose(state, iterated, e, true);
+        }
+
+        // Let innerIterator be Completion(GetIteratorFlattenable(mapped, reject-primitives)).
+        IteratorRecord* innerIterator = nullptr;
+        try {
+            innerIterator = IteratorObject::getIteratorFlattenable(state, mapped, IteratorObject::PrimitiveHandling::RejectPrimitives);
+        } catch (const Value& e) {
+            IteratorObject::iteratorClose(state, iterated, e, true);
+        }
+
+        // Let innerAlive be true.
+        // Set counter to counter + 1.
+        closureData->innerAlive = true;
+        closureData->innerIterator = innerIterator;
+        closureData->counter = StorePositiveNumberAsOddNumber(closureData->counter + 1);
+    }
+}
+
+static Value builtinIteratorFlatMap(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // Let O be the this value.
+    const Value& O = thisValue;
+
+    // If O is not an Object, throw a TypeError exception.
+    if (!O.isObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "this value is not Object");
+    }
+
+    // If IsCallable(mapper) is false, throw a TypeError exception.
+    const Value& mapper = argv[0];
+    if (!mapper.isCallable()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "mapper is not callable");
+    }
+
+    // Set iterated to ? GetIteratorDirect(O).
+    IteratorRecord* iterated = IteratorObject::getIteratorDirect(state, O.asObject());
+
+    // Let result be CreateIteratorFromClosure(closure, "Iterator Helper", %IteratorHelperPrototype%, « [[UnderlyingIterator]] »).
+    // Set result.[[UnderlyingIterator]] to iterated.
+    IteratorHelperObject* result = new IteratorHelperObject(state, iteratorFlatMapClosure, iterated, new FlatMapIteratorData(mapper));
+
+    // Return result.
+    return result;
+}
+
+
 static Value builtinGenericIteratorNext(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
 {
     if (!thisValue.isObject() || !thisValue.asObject()->isGenericIteratorObject()) {
@@ -762,17 +973,23 @@ void GlobalObject::installIterator(ExecutionState& state)
     m_asyncIteratorPrototype->setGlobalIntrinsicObject(state, true);
     // https://www.ecma-international.org/ecma-262/10.0/index.html#sec-asynciteratorprototype-asynciterator
     m_asyncIteratorPrototype->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().asyncIterator),
-                                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(AtomicString(state, String::fromASCII("[Symbol.asyncIterator]")), builtinSpeciesGetter, 0, NativeFunctionInfo::Strict)),
+                                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->symbolAsyncIterator, builtinSpeciesGetter, 0, NativeFunctionInfo::Strict)),
                                                                                         (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
+
+    m_asyncIteratorPrototype->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().asyncDispose),
+                                                               ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->symbolAsyncDispose, builtinIteratorAsyncDispose, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 
     m_iteratorPrototype = new PrototypeObject(state);
     m_iteratorPrototype->setGlobalIntrinsicObject(state, true);
     // https://www.ecma-international.org/ecma-262/10.0/index.html#sec-%iteratorprototype%-@@iterator
     m_iteratorPrototype->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().iterator),
-                                                          ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(AtomicString(state, String::fromASCII("[Symbol.iterator]")), builtinSpeciesGetter, 0, NativeFunctionInfo::Strict)),
+                                                          ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->symbolIterator, builtinSpeciesGetter, 0, NativeFunctionInfo::Strict)),
                                                                                    (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
     m_iteratorPrototype->defineOwnPropertyThrowsException(state, ObjectPropertyName(state, Value(state.context()->vmInstance()->globalSymbols().toStringTag)),
                                                           ObjectPropertyDescriptor(Value(strings->Iterator.string()), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
+
+    m_iteratorPrototype->defineOwnPropertyThrowsException(state, ObjectPropertyName(state.context()->vmInstance()->globalSymbols().dispose),
+                                                          ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->symbolDispose, builtinIteratorDispose, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 
     m_genericIteratorPrototype = new PrototypeObject(state, m_iteratorPrototype);
     m_genericIteratorPrototype->setGlobalIntrinsicObject(state, true);
@@ -784,6 +1001,9 @@ void GlobalObject::installIterator(ExecutionState& state)
 
     m_iterator = new NativeFunctionObject(state, NativeFunctionInfo(strings->Iterator, builtinIteratorConstructor, 0), NativeFunctionObject::__ForBuiltinConstructor__);
     m_iterator->setGlobalIntrinsicObject(state);
+
+    m_iterator->directDefineOwnProperty(state, ObjectPropertyName(strings->from),
+                                        ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->from, builtinIteratorFrom, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 
     // https://tc39.es/proposal-iterator-helpers/#sec-iterator.prototype
     m_iterator->setFunctionPrototype(state, m_iteratorPrototype);
@@ -839,6 +1059,9 @@ void GlobalObject::installIterator(ExecutionState& state)
 
     m_iteratorPrototype->directDefineOwnProperty(state, ObjectPropertyName(strings->toArray),
                                                  ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->toArray, builtinIteratorToArray, 0, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
+
+    m_iteratorPrototype->directDefineOwnProperty(state, ObjectPropertyName(strings->flatMap),
+                                                 ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->flatMap, builtinIteratorFlatMap, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 
     directDefineOwnProperty(state, ObjectPropertyName(strings->Iterator),
                             ObjectPropertyDescriptor(m_iterator, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));

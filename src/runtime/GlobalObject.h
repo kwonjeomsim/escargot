@@ -55,24 +55,26 @@ class FunctionObject;
 #define GLOBALOBJECT_BUILTIN_DATE(F, objName) \
     F(date, FunctionObject, objName)          \
     F(datePrototype, Object, objName)
-#define GLOBALOBJECT_BUILTIN_ERROR(F, objName)  \
-    F(error, FunctionObject, objName)           \
-    F(errorPrototype, Object, objName)          \
-    F(referenceError, FunctionObject, objName)  \
-    F(referenceErrorPrototype, Object, objName) \
-    F(typeError, FunctionObject, objName)       \
-    F(typeErrorPrototype, Object, objName)      \
-    F(rangeError, FunctionObject, objName)      \
-    F(rangeErrorPrototype, Object, objName)     \
-    F(syntaxError, FunctionObject, objName)     \
-    F(syntaxErrorPrototype, Object, objName)    \
-    F(uriError, FunctionObject, objName)        \
-    F(uriErrorPrototype, Object, objName)       \
-    F(evalError, FunctionObject, objName)       \
-    F(evalErrorPrototype, Object, objName)      \
-    F(aggregateError, FunctionObject, objName)  \
-    F(aggregateErrorPrototype, Object, objName) \
-    F(throwTypeError, FunctionObject, objName)  \
+#define GLOBALOBJECT_BUILTIN_ERROR(F, objName)   \
+    F(error, FunctionObject, objName)            \
+    F(errorPrototype, Object, objName)           \
+    F(referenceError, FunctionObject, objName)   \
+    F(referenceErrorPrototype, Object, objName)  \
+    F(typeError, FunctionObject, objName)        \
+    F(typeErrorPrototype, Object, objName)       \
+    F(rangeError, FunctionObject, objName)       \
+    F(rangeErrorPrototype, Object, objName)      \
+    F(syntaxError, FunctionObject, objName)      \
+    F(syntaxErrorPrototype, Object, objName)     \
+    F(uriError, FunctionObject, objName)         \
+    F(uriErrorPrototype, Object, objName)        \
+    F(evalError, FunctionObject, objName)        \
+    F(evalErrorPrototype, Object, objName)       \
+    F(aggregateError, FunctionObject, objName)   \
+    F(aggregateErrorPrototype, Object, objName)  \
+    F(suppressedError, FunctionObject, objName)  \
+    F(suppressedErrorPrototype, Object, objName) \
+    F(throwTypeError, FunctionObject, objName)   \
     F(throwerGetterSetterData, JSGetterSetter, objName)
 #define GLOBALOBJECT_BUILTIN_FUNCTION(F, objName) \
     F(function, FunctionObject, objName)          \
@@ -120,7 +122,22 @@ class FunctionObject;
 #else
 #define GLOBALOBJECT_BUILTIN_INTL_LISTFORMAT(F, objName)
 #endif
-
+#if defined(ENABLE_INTL_DURATIONFORMAT)
+#define GLOBALOBJECT_BUILTIN_INTL_DURATIONFORMAT(F, objName) \
+    F(intlDurationFormat, FunctionObject, objName)           \
+    F(intlDurationFormatPrototype, Object, objName)
+#else
+#define GLOBALOBJECT_BUILTIN_INTL_DURATIONFORMAT(F, objName)
+#endif
+#if defined(ENABLE_INTL_SEGMENTER)
+#define GLOBALOBJECT_BUILTIN_INTL_SEGMENTER(F, objName) \
+    F(intlSegmenter, FunctionObject, objName)           \
+    F(intlSegmenterPrototype, Object, objName)          \
+    F(intlSegmentsPrototype, Object, objName)           \
+    F(intlSegmentsIteratorPrototype, Object, objName)
+#else
+#define GLOBALOBJECT_BUILTIN_INTL_SEGMENTER(F, objName)
+#endif
 #define GLOBALOBJECT_BUILTIN_INTL(F, objName)                \
     F(intl, Object, objName)                                 \
     F(intlCollator, FunctionObject, objName)                 \
@@ -132,7 +149,9 @@ class FunctionObject;
     GLOBALOBJECT_BUILTIN_INTL_NUMBERFORMAT(F, objName)       \
     GLOBALOBJECT_BUILTIN_INTL_PLURALRULES(F, objName)        \
     GLOBALOBJECT_BUILTIN_INTL_RELATIVETIMEFORMAT(F, objName) \
-    GLOBALOBJECT_BUILTIN_INTL_LISTFORMAT(F, objName)
+    GLOBALOBJECT_BUILTIN_INTL_LISTFORMAT(F, objName)         \
+    GLOBALOBJECT_BUILTIN_INTL_DURATIONFORMAT(F, objName)     \
+    GLOBALOBJECT_BUILTIN_INTL_SEGMENTER(F, objName)
 #else
 #define GLOBALOBJECT_BUILTIN_INTL(F, objName)
 #endif
@@ -156,14 +175,18 @@ class FunctionObject;
     F(objectFreeze, FunctionObject, objName)    \
     F(objectPrototype, Object, objName)         \
     F(objectPrototypeToString, FunctionObject, objName)
-#define GLOBALOBJECT_BUILTIN_OTHERS(F, objName) \
-    F(eval, FunctionObject, objName)            \
-    F(parseInt, FunctionObject, objName)        \
-    F(parseFloat, FunctionObject, objName)      \
-    F(arrayToString, FunctionObject, objName)   \
-    F(asyncIteratorPrototype, Object, objName)  \
-    F(iteratorPrototype, Object, objName)       \
-    F(genericIteratorPrototype, Object, objName)
+#define GLOBALOBJECT_BUILTIN_OTHERS(F, objName)      \
+    F(eval, FunctionObject, objName)                 \
+    F(parseInt, FunctionObject, objName)             \
+    F(parseFloat, FunctionObject, objName)           \
+    F(arrayToString, FunctionObject, objName)        \
+    F(asyncIteratorPrototype, Object, objName)       \
+    F(iteratorPrototype, Object, objName)            \
+    F(genericIteratorPrototype, Object, objName)     \
+    F(disposableStack, FunctionObject, objName)      \
+    F(disposableStackPrototype, Object, objName)     \
+    F(asyncDisposableStack, FunctionObject, objName) \
+    F(asyncDisposableStackPrototype, Object, objName)
 
 #define GLOBALOBJECT_BUILTIN_PROMISE(F, objName)  \
     F(promise, FunctionObject, objName)           \
@@ -190,6 +213,15 @@ class FunctionObject;
     F(set, FunctionObject, objName)          \
     F(setPrototypeObject, Object, objName)   \
     F(setIteratorPrototype, Object, objName)
+
+#if defined(ESCARGOT_ENABLE_SHADOWREALM)
+#define GLOBALOBJECT_BUILTIN_SHADOWREALM(F, objName) \
+    F(shadowRealm, FunctionObject, objName)          \
+    F(shadowRealmPrototype, Object, objName)
+#else
+#define GLOBALOBJECT_BUILTIN_SHADOWREALM(F, objName)
+#endif
+
 #define GLOBALOBJECT_BUILTIN_STRING(F, objName) \
     F(string, FunctionObject, objName)          \
     F(stringPrototype, Object, objName)         \
@@ -312,6 +344,7 @@ class FunctionObject;
     F(REFLECT, Reflect, ARG)                             \
     F(REGEXP, RegExp, ARG)                               \
     F(SET, Set, ARG)                                     \
+    F(SHADOWREALM, ShadowRealm, ARG)                     \
     F(SHAREDARRAYBUFFER, SharedArrayBuffer, ARG)         \
     F(STRING, String, ARG)                               \
     F(SYMBOL, Symbol, ARG)                               \
@@ -322,7 +355,6 @@ class FunctionObject;
     F(WEAKSET, WeakSet, ARG)                             \
     F(WEAKREF, WeakRef, ARG)                             \
     F(WASM, WebAssembly, ARG)
-
 
 #define DECLARE_BUILTIN_ALL_LIST(OBJNAME, objName, ARG) \
     GLOBALOBJECT_BUILTIN_##OBJNAME(ARG, objName)

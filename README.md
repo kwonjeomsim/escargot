@@ -10,7 +10,7 @@
 Escargot is a lightweight JavaScript engine developed by [Samsung](https://github.com/Samsung), designed specifically for resource-constrained environments. It is optimized for performance and low memory usage, making it ideal for use in embedded systems, IoT devices, and other applications where resources are limited.
 
 Key features of Escargot include:
-* **ECMAScript Compliance**: Escargot supports a significant portion of the latest ECMAScript version ([ECMAScript 2024](https://262.ecma-international.org/15.0/)), ensuring compatibility with modern JavaScript standards while maintaining a lightweight footprint.
+* **ECMAScript Compliance**: Escargot supports a significant portion of the latest ECMAScript version ([ECMAScript 2025](https://262.ecma-international.org/16.0/)), ensuring compatibility with modern JavaScript standards while maintaining a lightweight footprint.
 * **Memory Efficiency**: The engine is designed with memory constraints in mind, making it suitable for devices with limited RAM and storage.
 * **Performance Optimization**: Escargot implements various optimization techniques to ensure fast execution of JavaScript code, even on low-power devices.
 * **Extensibility**: The engine can be customized and extended to meet the specific needs of different applications, providing flexibility for developers.
@@ -36,7 +36,7 @@ Escargot is an open-source project that allows developers to contribute to its d
 |-|-|
 | **Linux(Ubuntu)** | x86/x64/arm/aarch64 |
 | macOS | x64/aarch64 |
-| Windows | x86 |
+| Windows | Win32/x64 |
 | Android | x86/x64/arm/aarch64 |
 
 ### Build Options
@@ -128,7 +128,7 @@ Open [ x86 Native Tools Command Prompt for VS 2022 | x64 Native Tools Command Pr
 ```sh
 git submodule update --init third_party # update submodules
 
-CMake -G "Visual Studio 17 2022" -DCMAKE_SYSTEM_NAME=[ Windows | WindowsStore ] -DCMAKE_SYSTEM_VERSION:STRING="10.0"  -DCMAKE_SYSTEM_PROCESSOR=[ x86 | x64 ] -DCMAKE_GENERATOR_PLATFORM=[ Win32 | x64 ],version=10.0.18362.0 -DESCARGOT_ARCH=[ x86 | x64 ] -DESCARGOT_MODE=release -Bout -DESCARGOT_HOST=windows -DESCARGOT_OUTPUT=shell -DESCARGOT_LIBICU_SUPPORT=ON -DESCARGOT_LIBICU_SUPPORT_WITH_DLOPEN=OFF -DESCARGOT_THREADING=ON
+CMake -G "Visual Studio 17 2022" -DCMAKE_SYSTEM_NAME=[ Windows | WindowsStore ] -DCMAKE_SYSTEM_VERSION:STRING="10.0"  -DCMAKE_SYSTEM_PROCESSOR=[ x86 | x64 ] -DCMAKE_GENERATOR_PLATFORM=[ Win32 | x64 ],version=10.0.18362.0 -DESCARGOT_ARCH=[ x86 | x64 ] -DESCARGOT_MODE=release -Bout -DESCARGOT_HOST=windows -DESCARGOT_OUTPUT=shell -DESCARGOT_LIBICU_SUPPORT=ON -DESCARGOT_THREADING=ON
 cd out
 msbuild ESCARGOT.sln /property:Configuration=Release /p:platform=[ Win32 | x64 ]
 ```

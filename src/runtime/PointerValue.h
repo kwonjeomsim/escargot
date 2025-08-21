@@ -23,6 +23,7 @@
 namespace Escargot {
 
 class Value;
+class PointerValue;
 class String;
 class Symbol;
 class BigInt;
@@ -66,12 +67,15 @@ class SetObject;
 class WeakMapObject;
 class WeakRefObject;
 class WeakSetObject;
+class WrappedFunctionObject;
 class FinalizationRegistryObject;
 class GeneratorObject;
 class AsyncGeneratorObject;
 class AsyncFromSyncIteratorObject;
 class GlobalObjectProxyObject;
-class PointerValue;
+class DisposableStackObject;
+class AsyncDisposableStackObject;
+struct DisposableResourceRecord;
 #if defined(ENABLE_TEMPORAL)
 class TemporalObject;
 class TemporalPlainDateObject;
@@ -88,6 +92,7 @@ class TemporalTimeZoneObject;
 class TypedArrayObject;
 class ModuleNamespaceObject;
 class SharedArrayBufferObject;
+class ShadowRealmObject;
 #if defined(ENABLE_INTL)
 class IntlLocaleObject;
 class IntlPluralRulesObject;
@@ -95,6 +100,10 @@ class IntlDateTimeFormatObject;
 class IntlRelativeTimeFormatObject;
 class IntlDisplayNamesObject;
 class IntlListFormatObject;
+class IntlDurationFormatObject;
+class IntlSegmenterObject;
+class IntlSegmentsObject;
+class IntlSegmentsIteratorObject;
 #endif
 #if defined(ENABLE_WASM)
 class WASMModuleObject;
@@ -270,6 +279,11 @@ public:
         return false;
     }
 
+    virtual bool isShadowRealmObject() const
+    {
+        return false;
+    }
+
     virtual bool isStringObject() const
     {
         return false;
@@ -400,6 +414,11 @@ public:
         return false;
     }
 
+    virtual bool isWrappedFunctionObject() const
+    {
+        return false;
+    }
+
     virtual bool isFinalizationRegistryObject() const
     {
         return false;
@@ -500,6 +519,21 @@ public:
         return false;
     }
 
+    virtual bool isDisposableResourceRecord() const
+    {
+        return false;
+    }
+
+    virtual bool isDisposableStackObject() const
+    {
+        return false;
+    }
+
+    virtual bool isAsyncDisposableStackObject() const
+    {
+        return false;
+    }
+
 #if defined(ENABLE_INTL)
     virtual bool isIntlLocaleObject() const
     {
@@ -527,6 +561,26 @@ public:
     }
 
     virtual bool isIntlListFormatObject() const
+    {
+        return false;
+    }
+
+    virtual bool isIntlDurationFormatObject() const
+    {
+        return false;
+    }
+
+    virtual bool isIntlSegmenterObject() const
+    {
+        return false;
+    }
+
+    virtual bool isIntlSegmentsObject() const
+    {
+        return false;
+    }
+
+    virtual bool isIntlSegmentsIteratorObject() const
     {
         return false;
     }
@@ -703,6 +757,13 @@ public:
         return (ScriptClassConstructorPrototypeObject*)this;
     }
 
+#if defined(ESCARGOT_ENABLE_SHADOWREALM)
+    ShadowRealmObject* asShadowRealmObject()
+    {
+        ASSERT(isShadowRealmObject());
+        return (ShadowRealmObject*)this;
+    }
+#endif
     StringObject* asStringObject()
     {
         ASSERT(isStringObject());
@@ -823,6 +884,14 @@ public:
         return (WrapForValidIteratorObject*)this;
     }
 
+#if defined(ESCARGOT_ENABLE_SHADOWREALM)
+    WrappedFunctionObject* asWrappedFunctionObject()
+    {
+        ASSERT(isWrappedFunctionObject());
+        return (WrappedFunctionObject*)this;
+    }
+#endif
+
     GenericIteratorObject* asGenericIteratorObject()
     {
         ASSERT(isGenericIteratorObject());
@@ -889,6 +958,24 @@ public:
         return (GlobalObjectProxyObject*)this;
     }
 
+    DisposableResourceRecord* asDisposableResourceRecord()
+    {
+        ASSERT(isDisposableResourceRecord());
+        return (DisposableResourceRecord*)this;
+    }
+
+    DisposableStackObject* asDisposableStackObject()
+    {
+        ASSERT(isDisposableStackObject());
+        return (DisposableStackObject*)this;
+    }
+
+    AsyncDisposableStackObject* asAsyncDisposableStackObject()
+    {
+        ASSERT(isAsyncDisposableStackObject());
+        return (AsyncDisposableStackObject*)this;
+    }
+
 #if defined(ENABLE_THREADING)
     SharedArrayBufferObject* asSharedArrayBufferObject()
     {
@@ -937,6 +1024,30 @@ public:
     {
         ASSERT(isIntlListFormatObject());
         return (IntlListFormatObject*)this;
+    }
+
+    IntlDurationFormatObject* asIntlDurationFormatObject()
+    {
+        ASSERT(isIntlDurationFormatObject());
+        return (IntlDurationFormatObject*)this;
+    }
+
+    IntlSegmenterObject* asIntlSegmenterObject()
+    {
+        ASSERT(isIntlSegmenterObject());
+        return (IntlSegmenterObject*)this;
+    }
+
+    IntlSegmentsObject* asIntlSegmentsObject()
+    {
+        ASSERT(isIntlSegmentsObject());
+        return (IntlSegmentsObject*)this;
+    }
+
+    IntlSegmentsIteratorObject* asIntlSegmentsIteratorObject()
+    {
+        ASSERT(isIntlSegmentsIteratorObject());
+        return (IntlSegmentsIteratorObject*)this;
     }
 #endif
 

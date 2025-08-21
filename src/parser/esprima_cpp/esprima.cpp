@@ -653,6 +653,11 @@ public:
         }
     }
 
+    bool canUseUsingAsDeclaration()
+    {
+        return this->context->inFunctionBody || this->sourceType == SourceType::Module || this->lexicalBlockIndex != 0;
+    }
+
     ALWAYS_INLINE void collectComments()
     {
         this->scanner->scanComments();
@@ -1211,6 +1216,8 @@ public:
                 return this->parseIdentifierName(builder);
             } else if (!this->context->strict && this->matchKeyword(LetKeyword)) {
                 return this->parseIdentifierName(builder);
+            } else if (this->matchKeyword(UsingKeyword)) {
+                return this->parseIdentifierName(builder);
             } else {
                 this->context->isAssignmentTarget = false;
                 this->context->isBindingElement = false;
@@ -1360,7 +1367,7 @@ public:
                 if (this->context->inParameterParsing) {
                     this->currentScopeContext->m_functionBodyBlockIndex = 1;
                 }
-                if (kind == KeywordKind::VarKeyword || kind == KeywordKind::LetKeyword || kind == KeywordKind::ConstKeyword) {
+                if (kind == KeywordKind::VarKeyword || kind == KeywordKind::LetKeyword || kind == KeywordKind::ConstKeyword || kind == KeywordKind::UsingKeyword) {
                     addDeclaredNameIntoContext(name, this->lexicalBlockIndex, kind, isExplicitVariableDeclaration);
                 }
                 shorthand = true;
@@ -1372,7 +1379,7 @@ public:
                 valueNode = this->finalize(this->startNode(keyToken), builder.createAssignmentPatternNode(keyNode, expr));
             } else if (!this->match(Colon)) {
                 params.push_back(*keyToken);
-                if (kind == KeywordKind::VarKeyword || kind == KeywordKind::LetKeyword || kind == KeywordKind::ConstKeyword) {
+                if (kind == KeywordKind::VarKeyword || kind == KeywordKind::LetKeyword || kind == KeywordKind::ConstKeyword || kind == KeywordKind::UsingKeyword) {
                     addDeclaredNameIntoContext(name, this->lexicalBlockIndex, kind, isExplicitVariableDeclaration);
                 }
                 shorthand = true;
@@ -1532,6 +1539,35 @@ public:
         this->context->inParameterParsing = oldInParameterParsing;
         this->context->inParameterNameParsing = oldInParameterNameParsing;
         this->context->isAssignmentTarget = oldIsAssignmentTarget;
+    }
+
+    bool matchAwaitUsingWithSameLine()
+    {
+        ASSERT(this->matchContextualKeyword(AwaitKeyword));
+        ScanState state = this->scanner->saveState();
+        this->collectComments();
+        ALLOC_TOKEN(next);
+        this->scanner->lex(next);
+        this->collectComments();
+        ALLOC_TOKEN(nextOfNext);
+        this->scanner->lex(nextOfNext);
+        this->scanner->restoreState(state);
+
+        if (nextOfNext->type == Token::IdentifierToken && nextOfNext->lineNumber == next->lineNumber) {
+            return (state.lineNumber == next->lineNumber) && (next->type == Token::KeywordToken) && (next->valueKeywordKind == KeywordKind::UsingKeyword);
+        }
+
+        return false;
+    }
+
+    bool matchAwaitUsing()
+    {
+        if ((this->sourceType == Module && inGlobalSourceCodeParsing()) || this->context->await) {
+            if (this->canUseUsingAsDeclaration() && this->matchContextualKeyword(AwaitKeyword)) {
+                return matchAwaitUsingWithSameLine();
+            }
+        }
+        return false;
     }
 
     bool matchAsyncFunction()
@@ -3607,6 +3643,23 @@ public:
             case ConstKeyword:
                 statement = this->parseVariableStatement(builder, KeywordKind::ConstKeyword);
                 break;
+            case UsingKeyword: {
+                if (this->canUseUsingAsDeclaration()) {
+                    ScanState state = this->scanner->saveState();
+                    this->collectComments();
+                    ALLOC_TOKEN(next);
+                    this->scanner->lex(next);
+                    this->scanner->restoreState(state);
+                    if (next->type == Token::IdentifierToken && next->lineNumber == this->lookahead.lineNumber) {
+                        statement = this->parseVariableStatement(builder, KeywordKind::UsingKeyword);
+                    } else {
+                        statement = this->parseStatement(builder);
+                    }
+                } else {
+                    statement = this->parseStatement(builder);
+                }
+                break;
+            }
             case LetKeyword:
                 // The `let` contextual keyword must not contain Unicode escape sequences
                 statement = (this->isLexicalDeclaration() && (this->lookahead.end - this->lookahead.start == 3)) ? this->parseLexicalDeclaration(builder, false) : this->parseStatement(builder);
@@ -3847,7 +3900,9 @@ public:
                 this->throwUnexpectedToken(*token);
             }
         } else if (token->type != Token::IdentifierToken) {
-            if (this->context->strict && token->type == Token::KeywordToken && token->isStrictModeReservedWord()) {
+            if (token->valueKeywordKind == KeywordKind::UsingKeyword) {
+                // always allow using keyword
+            } else if (this->context->strict && token->type == Token::KeywordToken && token->isStrictModeReservedWord()) {
                 this->throwUnexpectedToken(*token, Messages::StrictReservedWord);
             } else if (this->context->strict || token->type != Token::KeywordToken || !token->equalsToKeywordNoEscape(LetKeyword) || kind != VarKeyword) {
                 this->throwUnexpectedToken(*token);
@@ -3860,7 +3915,7 @@ public:
         }
 
         ASTNode id;
-        if (kind == KeywordKind::VarKeyword || kind == KeywordKind::LetKeyword || kind == KeywordKind::ConstKeyword) {
+        if (kind == KeywordKind::VarKeyword || kind == KeywordKind::LetKeyword || kind == KeywordKind::ConstKeyword || kind == KeywordKind::UsingKeyword) {
             TrackUsingNameBlocker blocker(this);
             id = finishIdentifier(builder, token);
 
@@ -3882,7 +3937,7 @@ public:
 
     void addDeclaredNameIntoContext(AtomicString name, LexicalBlockIndex blockIndex, KeywordKind kind, bool isExplicitVariableDeclaration = false)
     {
-        ASSERT(kind == VarKeyword || kind == LetKeyword || kind == ConstKeyword);
+        ASSERT(kind == VarKeyword || kind == LetKeyword || kind == ConstKeyword || kind == UsingKeyword);
 
         if (!this->isParsingSingleFunction) {
             /*
@@ -3907,7 +3962,8 @@ public:
             if (kind == VarKeyword) {
                 this->currentScopeContext->insertVarName(name, blockIndex, true, true);
             } else {
-                this->currentScopeContext->insertNameAtBlock(name, blockIndex, kind == ConstKeyword);
+                this->currentScopeContext->insertNameAtBlock(name, blockIndex,
+                                                             (kind == ConstKeyword) || (kind == UsingKeyword), kind == UsingKeyword);
             }
         }
 
@@ -4161,6 +4217,8 @@ public:
         ParserBlockContext headBlockContext;
         openBlock(headBlockContext);
 
+        bool matchAwaitUsing = false;
+
         if (this->match(SemiColon)) {
             this->nextToken();
         } else {
@@ -4198,8 +4256,14 @@ public:
                     init = this->finalize(this->createNode(), builder.createVariableDeclarationNode(declarationList, VarKeyword));
                     this->expect(SemiColon);
                 }
-            } else if (this->matchKeyword(ConstKeyword) || this->matchKeyword(LetKeyword)) {
+            } else if (this->matchKeyword(ConstKeyword) || this->matchKeyword(LetKeyword) || this->matchKeyword(UsingKeyword) || (matchAwaitUsing = this->matchAwaitUsing())) {
                 Marker letContstMarker = this->lastMarker;
+                if (matchAwaitUsing) {
+                    this->nextToken();
+                    if (this->sourceType == Module && inGlobalSourceCodeParsing()) {
+                        this->currentScopeContext->m_isAsync = true;
+                    }
+                }
                 Scanner::ScannerResult keywordToken = this->lookahead;
                 KeywordKind kind = keywordToken.valueKeywordKind;
                 this->nextToken();
@@ -4232,7 +4296,7 @@ public:
                     this->context->allowLexicalDeclaration = true;
 
                     if (!this->context->strict && this->matchKeyword(InKeyword)) {
-                        if (seenAwait) {
+                        if (seenAwait || matchAwaitUsing) {
                             this->throwUnexpectedToken(this->lookahead);
                         }
                         this->nextToken();
@@ -4253,7 +4317,7 @@ public:
                         this->context->allowIn = previousAllowIn;
 
                         if (declarationList.size() == 1 && !std::get<0>(declarations) && this->matchKeyword(InKeyword)) {
-                            if (seenAwait) {
+                            if (seenAwait || matchAwaitUsing) {
                                 this->throwUnexpectedToken(this->lookahead);
                             }
                             left = this->finalize(this->createNode(), builder.createVariableDeclarationNode(declarationList, kind));
@@ -4261,10 +4325,13 @@ public:
                             type = statementTypeForIn;
                         } else if (declarationList.size() == 1 && !std::get<0>(declarations) && this->lookahead.type == Token::IdentifierToken && this->lookahead.equalsToKeywordNoEscape(OfKeyword)) {
                             left = this->finalize(this->createNode(), builder.createVariableDeclarationNode(declarationList, kind));
+                            if (matchAwaitUsing) {
+                                left->asVariableDeclaration()->markAwaitUsing();
+                            }
                             this->nextToken();
                             type = statementTypeForOf;
                         } else {
-                            if (seenAwait) {
+                            if (seenAwait || matchAwaitUsing) {
                                 this->throwUnexpectedToken(this->lookahead);
                             }
                             init = this->finalize(this->createNode(), builder.createVariableDeclarationNode(declarationList, kind));
@@ -4849,7 +4916,18 @@ public:
             break;
         }
         case Token::IdentifierToken:
-            statement = this->matchAsyncFunction() ? this->parseFunctionDeclaration(builder, shouldTopLevelDeclaration) : this->parseLabelledStatement(builder, allowFunctionDeclaration);
+            if (UNLIKELY(this->matchAsyncFunction())) {
+                statement = this->parseFunctionDeclaration(builder, shouldTopLevelDeclaration);
+            } else if (UNLIKELY(this->matchAwaitUsing())) {
+                this->nextToken();
+                statement = this->parseVariableStatement(builder, KeywordKind::UsingKeyword);
+                statement->asVariableDeclaration()->markAwaitUsing();
+                if (this->sourceType == Module && inGlobalSourceCodeParsing()) {
+                    this->currentScopeContext->m_isAsync = true;
+                }
+            } else {
+                statement = this->parseLabelledStatement(builder, allowFunctionDeclaration);
+            }
             break;
         case Token::KeywordToken:
             switch (this->lookahead.valueKeywordKind) {
@@ -6621,7 +6699,6 @@ public:
                     entry.m_exportName = this->escargotContext->staticStrings().stringDefault;
                     AtomicString fnName = declaration->asFunctionDeclaration()->functionName();
                     entry.m_localName = fnName.string()->length() ? fnName : this->escargotContext->staticStrings().stringStarDefaultStar;
-                    // addDeclaredNameIntoContext(entry.m_localName.value(), this->lexicalBlockIndex, KeywordKind::LetKeyword);
                     checkDuplicateExportName(this->moduleData->m_localExportEntries, entry.m_exportName.value());
                     addExportDeclarationEntry(entry);
                     exportDeclaration = this->finalize(node, builder.createExportDefaultDeclarationNode(declaration, entry.m_exportName.value(), entry.m_localName.value()));

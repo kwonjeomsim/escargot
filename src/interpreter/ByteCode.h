@@ -135,6 +135,8 @@ struct GlobalVariableAccessCacheItem;
     F(BindingCalleeIntoRegister)                      \
     F(ResolveNameAddress)                             \
     F(StoreByNameWithAddress)                         \
+    F(InitializeDisposable)                           \
+    F(FinalizeDisposable)                             \
     F(FillOpcodeTable)                                \
     F(End)
 
@@ -3150,6 +3152,45 @@ public:
 #endif
 };
 
+class InitializeDisposable : public ByteCode {
+public:
+    InitializeDisposable(const ByteCodeLOC& loc, bool isAsyncDisposable, const size_t srcRegisterIndex, const size_t dstRegisterIndex)
+        : ByteCode(Opcode::InitializeDisposableOpcode, loc)
+        , m_isAsyncDisposable(isAsyncDisposable)
+        , m_srcRegisterIndex(srcRegisterIndex)
+        , m_dstRegisterIndex(dstRegisterIndex)
+    {
+    }
+    bool m_isAsyncDisposable;
+    ByteCodeRegisterIndex m_srcRegisterIndex;
+    ByteCodeRegisterIndex m_dstRegisterIndex;
+
+#ifndef NDEBUG
+    void dump()
+    {
+        printf("initialize disposable r%u <- r%u", m_dstRegisterIndex, m_srcRegisterIndex);
+    }
+#endif
+};
+
+class FinalizeDisposable : public ByteCode {
+public:
+    FinalizeDisposable(const ByteCodeLOC& loc, const size_t dataRegisterIndex, const size_t tailDataLength)
+        : ByteCode(Opcode::FinalizeDisposableOpcode, loc)
+        , m_dataRegisterIndex(dataRegisterIndex)
+        , m_tailDataLength(tailDataLength)
+    {
+    }
+    ByteCodeRegisterIndex m_dataRegisterIndex;
+    ByteCodeRegisterIndex m_tailDataLength;
+#ifndef NDEBUG
+    void dump()
+    {
+        printf("finalize disposable r%u", m_dataRegisterIndex);
+    }
+#endif
+};
+
 class FillOpcodeTable : public ByteCode {
 public:
     explicit FillOpcodeTable(const ByteCodeLOC& loc)
@@ -3235,27 +3276,39 @@ public:
         // TODO throw exception
         RELEASE_ASSERT(m_requiredOperandRegisterNumber < REGISTER_LIMIT);
 
-        if (std::is_same<CodeType, ExecutionPause>::value) {
+        if (std::is_same<CodeType, ExecutionPause>::value || std::is_same<CodeType, FinalizeDisposable>::value) {
             pushPauseStatementExtraData(context);
         }
     }
 
     struct ByteCodeLexicalBlockContext {
+        size_t loc;
         size_t lexicalBlockSetupStartPosition;
         size_t lexicalBlockStartPosition;
         size_t lexicallyDeclaredNamesCount;
         size_t lexicallyDeclaredNamesCountBefore;
+        size_t usingBlockTryStartPosition;
+        void* blockInfo;
+#if defined(ENABLE_TCO)
+        bool tcoDisabledBefore;
+#endif
 
         ByteCodeLexicalBlockContext()
-            : lexicalBlockSetupStartPosition(SIZE_MAX)
+            : loc(SIZE_MAX)
+            , lexicalBlockSetupStartPosition(SIZE_MAX)
             , lexicalBlockStartPosition(SIZE_MAX)
             , lexicallyDeclaredNamesCount(SIZE_MAX)
             , lexicallyDeclaredNamesCountBefore(SIZE_MAX)
+            , usingBlockTryStartPosition(SIZE_MAX)
+            , blockInfo(nullptr)
+#if defined(ENABLE_TCO)
+            , tcoDisabledBefore(false)
+#endif
         {
         }
     };
 
-    ByteCodeLexicalBlockContext pushLexicalBlock(ByteCodeGenerateContext* context, void* bi, Node* node, bool initFunctionDeclarationInside = true);
+    ByteCodeLexicalBlockContext pushLexicalBlock(ByteCodeGenerateContext* context, void* bi, Node* node, bool initFunctionDeclarationInside = true, bool initUsingBlockInside = true);
     void finalizeLexicalBlock(ByteCodeGenerateContext* context, const ByteCodeBlock::ByteCodeLexicalBlockContext& ctx);
     void initFunctionDeclarationWithinBlock(ByteCodeGenerateContext* context, void* bi, Node* node);
 

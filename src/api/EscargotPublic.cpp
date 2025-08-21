@@ -129,9 +129,9 @@ public:
         return m_platform->onMallocArrayBufferObjectDataBuffer(sizeInByte);
     }
 
-    virtual void onFreeArrayBufferObjectDataBuffer(void* buffer, size_t sizeInByte) override
+    virtual void onFreeArrayBufferObjectDataBuffer(void* buffer, size_t sizeInByte, void* deleterData) override
     {
-        m_platform->onFreeArrayBufferObjectDataBuffer(buffer, sizeInByte);
+        m_platform->onFreeArrayBufferObjectDataBuffer(buffer, sizeInByte, deleterData);
     }
 
     virtual void* onReallocArrayBufferObjectDataBuffer(void* oldBuffer, size_t oldSizeInByte, size_t newSizeInByte) override
@@ -562,6 +562,16 @@ bool Memory::gcHasFinalizer(SymbolRef* ptr, GCAllocatedMemoryFinalizer callback,
 void Memory::gc()
 {
     GC_gcollect_and_unmap();
+}
+
+void Memory::disableGC()
+{
+    GC_disable();
+}
+
+void Memory::enableGC()
+{
+    GC_enable();
 }
 
 void Memory::setGCFrequency(size_t value)
@@ -2855,6 +2865,16 @@ ObjectRef* GlobalObjectRef::aggregateErrorPrototype()
     return toRef(toImpl(this)->aggregateErrorPrototype());
 }
 
+FunctionObjectRef* GlobalObjectRef::suppressedError()
+{
+    return toRef(toImpl(this)->suppressedError());
+}
+
+ObjectRef* GlobalObjectRef::suppressedErrorPrototype()
+{
+    return toRef(toImpl(this)->suppressedErrorPrototype());
+}
+
 FunctionObjectRef* GlobalObjectRef::string()
 {
     return toRef(toImpl(this)->string());
@@ -4086,6 +4106,12 @@ EvalErrorObjectRef* EvalErrorObjectRef::create(ExecutionStateRef* state, StringR
 AggregateErrorObjectRef* AggregateErrorObjectRef::create(ExecutionStateRef* state, StringRef* errorMessage)
 {
     return toRef((AggregateErrorObject*)ErrorObject::createError(*toImpl(state), ErrorCode::AggregateError, toImpl(errorMessage)));
+}
+
+SuppressedErrorObjectRef* SuppressedErrorObjectRef::create(ExecutionStateRef* state, StringRef* errorMessage, ValueRef* error, ValueRef* suppressed)
+{
+    Object* proto = toImpl(state)->context()->globalObject()->suppressedErrorPrototype();
+    return toRef(new SuppressedErrorObject(*toImpl(state), proto, toImpl(errorMessage), true, false, toImpl(error), toImpl(suppressed)));
 }
 
 DateObjectRef* DateObjectRef::create(ExecutionStateRef* state)
