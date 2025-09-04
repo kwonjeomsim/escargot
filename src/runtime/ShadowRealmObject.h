@@ -20,6 +20,7 @@
 #ifndef __EscargotShadowRealmObject__
 #define __EscargotShadowRealmObject__
 
+#include "parser/Script.h"
 #include "runtime/Object.h"
 #include "runtime/Context.h"
 #include "runtime/ExecutionState.h"
@@ -51,6 +52,9 @@ public:
 
     static Value getWrappedValue(ExecutionState& state, Context* callerRealm, const Value& value);
     static Value performShadowRealmEval(ExecutionState& state, Value& sourceText, Context* callerRealm, Context* evalRealm);
+    static Value shadowRealmImportValue(ExecutionState& state, String* specifierString, String* exportName, Context* callerRealm, Context* evalRealm);
+
+    static Value exportGetter(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget);
 
 private:
     Context* m_realmContext;

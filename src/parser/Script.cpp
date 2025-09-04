@@ -1293,6 +1293,20 @@ void Script::moduleExecuteAsyncModule(ExecutionState& state)
     // Return.
 }
 
+void Script::finishLoadingImportedModule(ExecutionState& state, Context* referrer, ModuleRequest& request)
+{
+    // If result is a normal completion, then
+    //    If referrer.[[LoadedModules]] contains a LoadedModuleRequest Record record such that ModuleRequestsEqual(record, moduleRequest) is true, then
+    //       Assert: record.[[Module]] and result.[[Value]] are the same Module Record.
+    //    Else,
+    //       Append the LoadedModuleRequest Record { [[Specifier]]: moduleRequest.[[Specifier]], [[Attributes]]: moduleRequest.[[Attributes]], [[Module]]: result.[[Value]] } to referrer.[[LoadedModules]].
+    // If payload is a GraphLoadingState Record, then
+    //    Perform ContinueModuleLoading(payload, result).
+    // Else,
+    //    Perform ContinueDynamicImport(payload, result).
+    // Return unused.
+}
+
 ModuleNamespaceObject* Script::getModuleNamespace(ExecutionState& state)
 {
     // Assert: module is an instance of a concrete subclass of Module Record.

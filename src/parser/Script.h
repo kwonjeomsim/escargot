@@ -238,6 +238,9 @@ public:
     // https://tc39.es/ecma262/#sec-meta-properties-runtime-semantics-evaluation
     Object* importMetaProperty(ExecutionState& state);
 
+    // https://tc39.es/ecma262/#sec-FinishLoadingImportedModule
+    void finishLoadingImportedModule(ExecutionState& state, Context* referrer, ModuleRequest& request);
+
     // https://tc39.es/ecma262/#sec-getmodulenamespace
     ModuleNamespaceObject* getModuleNamespace(ExecutionState& state);
 
