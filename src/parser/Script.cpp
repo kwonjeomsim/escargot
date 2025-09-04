@@ -36,6 +36,8 @@
 #include "runtime/ModuleNamespaceObject.h"
 #include "parser/ast/AST.h"
 
+#include "runtime/ShadowRealmObject.h"
+
 namespace Escargot {
 
 void* Script::operator new(size_t size)
@@ -1291,6 +1293,239 @@ void Script::moduleExecuteAsyncModule(ExecutionState& state)
     // Perform ! module.ExecuteModule(capability).
     moduleExecute(state, capability);
     // Return.
+}
+
+Script::ModuleExecutionResult Script::shadowRealmModuleEvaluation(ExecutionState& state, String* specifierString, String* exportName)
+{
+    // + https://tc39.es/proposal-top-level-await/#sec-moduleevaluation
+
+    // Let module be this Cyclic Module Record.
+    ModuleData* md = moduleData();
+    // Assert: module.[[Status]] is "linked" or "evaluated".
+    ASSERT(md->m_status == ModuleData::Linked || md->m_status == ModuleData::Evaluated);
+
+    // If module.[[Status]] is evaluated, set module to module.[[CycleRoot]].
+    if (md->m_status == ModuleData::Evaluated) {
+        md->m_cycleRoot = this;
+    }
+    // If module.[[TopLevelCapability]] is not empty, then
+    if (md->m_topLevelCapability.hasValue()) {
+        // Return module.[[TopLevelCapability]].[[Promise]].
+        return Script::ModuleExecutionResult(false, md->m_topLevelCapability.value().m_promise);
+    }
+
+    // Let stack be a new empty List.
+    std::vector<Script*> stack;
+
+    // Let capability be ! NewPromiseCapability(%Promise%).
+    auto capability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    // Set module.[[TopLevelCapability]] to capability.
+    md->m_topLevelCapability = capability;
+
+    // Let result be InnerModuleEvaluation(module, stack, 0).
+    auto result = innerShadowRealmModuleEvaluation(state, stack, 0, specifierString, exportName);
+    // If result is an abrupt completion, then
+    if (result.gotException) {
+        // For each module m in stack, do
+        for (size_t i = 0; i < stack.size(); i++) {
+            // Assert: m.[[Status]] is "evaluating".
+            ASSERT(stack[i]->moduleData()->m_status == ModuleData::Evaluating);
+            // Set m.[[Status]] to "evaluated".
+            // Set m.[[EvaluationError]] to result.
+            // Assert: module.[[Status]] is "evaluated" and module.[[EvaluationError]] is result.
+            stack[i]->moduleData()->m_status = ModuleData::Evaluated;
+            stack[i]->moduleData()->m_evaluationError = EncodedValue(result.value);
+        }
+        // Perform ! Call(capability.[[Reject]], undefined, « result.[[Value]] »).
+        Value arg = result.value;
+        Object::call(state, capability.m_rejectFunction, Value(), 1, &arg);
+    } else {
+        // Otherwise,
+        // Assert: module.[[Status]] is "evaluated" and module.[[EvaluationError]] is undefined.
+        // If module.[[AsyncEvaluating]] is false, then
+        if (!md->m_asyncEvaluating) {
+            // Perform ! Call(capability.[[Resolve]], undefined, « undefined »).
+            Value arg;
+            Object::call(state, capability.m_resolveFunction, Value(), 1, &arg);
+        }
+        // Assert: stack is empty.
+    }
+
+    // Return capability.[[Promise]].
+    // FIXME return promise
+    return result;
+}
+
+Script::ModuleExecutionResult Script::innerShadowRealmModuleEvaluation(ExecutionState& state, std::vector<Script*>& stack, uint32_t index, String* specifierString, String* exportName)
+{
+    //+ https://tc39.es/proposal-top-level-await/#sec-innermoduleevaluation
+    // If module is not a Cyclic Module Record, then
+    //     Perform ? module.Evaluate().
+    //     Return index.
+    ASSERT(isModule());
+
+    ModuleData* md = moduleData();
+
+    // If module.[[Status]] is "evaluated", then
+    if (md->m_status == ModuleData::Evaluated) {
+        // If module.[[EvaluationError]] is undefined, return index.
+        if (!md->m_evaluationError.hasValue() || Value(md->m_evaluationError.value()).isUndefined()) {
+            return Script::ModuleExecutionResult(false, Value(index));
+        }
+        // Otherwise return module.[[EvaluationError]].
+        return Script::ModuleExecutionResult(true, md->m_evaluationError.value());
+    }
+
+    // If module.[[Status]] is "evaluating", return index.
+    if (md->m_status == ModuleData::Evaluating) {
+        return Script::ModuleExecutionResult(false, Value(index));
+    }
+
+    // Assert: module.[[Status]] is "linked".
+    ASSERT(md->m_status == ModuleData::Linked);
+    // Set module.[[Status]] to "evaluating".
+    md->m_status = ModuleData::Evaluating;
+    // Set module.[[DFSIndex]] to index.
+    md->m_dfsIndex = index;
+    // Set module.[[DFSAncestorIndex]] to index.
+    md->m_dfsAncestorIndex = index;
+    // Set module.[[PendingAsyncDependencies]] to 0.
+    md->m_pendingAsyncDependencies = size_t(0);
+    // Increase index by 1.
+    index++;
+    // Append module to stack.
+    stack.push_back(this);
+
+    // For each String required that is an element of module.[[RequestedModules]], do
+    size_t rmLength = moduleRequestsLength();
+    for (size_t i = 0; i < rmLength; i++) {
+        // Let requiredModule be ! HostResolveImportedModule(module, required).
+        Script* requiredModule = loadModuleFromScript(state, m_moduleData->m_requestedModules[i]);
+        // NOTE: Instantiate must be completed successfully prior to invoking this method, so every requested module is guaranteed to resolve successfully.
+        // Set index to ? InnerModuleEvaluation(requiredModule, stack, index).
+        auto result = requiredModule->innerShadowRealmModuleEvaluation(state, stack, index, specifierString, exportName);
+        if (result.gotException) {
+            return result;
+        }
+        index = result.value.asNumber();
+        // Assert: requiredModule.[[Status]] is either "evaluating" or "evaluated".
+        ASSERT(requiredModule->moduleData()->m_status == ModuleData::Evaluating || requiredModule->moduleData()->m_status == ModuleData::Evaluated);
+// Assert: requiredModule.[[Status]] is "evaluating" if and only if requiredModule is in stack.
+#if !defined(NDEBUG)
+        if (requiredModule->moduleData()->m_status == ModuleData::Evaluating) {
+            bool onStack = false;
+            for (size_t j = 0; j < stack.size(); j++) {
+                if (stack[j] == requiredModule) {
+                    onStack = true;
+                    break;
+                }
+            }
+            ASSERT(onStack);
+        }
+#endif
+        // If requiredModule.[[Status]] is "evaluating", then
+        if (requiredModule->moduleData()->m_status == ModuleData::Evaluating) {
+            // Assert: requiredModule is a Cyclic Module Record.
+            ASSERT(requiredModule->isModule());
+            // Set module.[[DFSAncestorIndex]] to min(module.[[DFSAncestorIndex]], requiredModule.[[DFSAncestorIndex]]).
+            md->m_dfsAncestorIndex = std::min(md->m_dfsAncestorIndex.value(), requiredModule->moduleData()->m_dfsAncestorIndex.value());
+        } else {
+            // Otherwise,
+            // Set requiredModule to requiredModule.[[CycleRoot]].
+            requiredModule = requiredModule->moduleData()->m_cycleRoot.value();
+            // Assert: requiredModule.[[Status]] is evaluated.
+            ASSERT(requiredModule->moduleData()->m_status == ModuleData::Evaluated);
+            // If requiredModule.[[EvaluationError]] is not empty, return requiredModule.[[EvaluationError]].
+            if (requiredModule->moduleData()->m_evaluationError.hasValue()) {
+                return Script::ModuleExecutionResult(true, requiredModule->moduleData()->m_evaluationError.value());
+            }
+        }
+
+        // If requiredModule.[[AsyncEvaluating]] is true, then
+        if (requiredModule->moduleData()->m_asyncEvaluating) {
+            // Set module.[[PendingAsyncDependencies]] to module.[[PendingAsyncDependencies]] + 1.
+            md->m_pendingAsyncDependencies = size_t(md->m_pendingAsyncDependencies.value() + 1);
+            // Append module to requiredModule.[[AsyncParentModules]].
+            requiredModule->moduleData()->m_asyncParentModules.pushBack(this);
+        }
+    }
+
+    if (m_topCodeBlock == nullptr) {
+        // Synthetic module evaluation
+        ModuleEnvironmentRecord* moduleRecord = md->m_moduleRecord;
+        moduleRecord->createBinding(state, state.context()->staticStrings().stringStarDefaultStar, false, false, false);
+
+        try {
+            moduleRecord->initializeBinding(state, state.context()->staticStrings().stringStarDefaultStar, JSON::parse(state, sourceCode(), Value()));
+        } catch (const Value& e) {
+            md->m_evaluationError = EncodedValue(e);
+        }
+
+    } else if (md->m_pendingAsyncDependencies.hasValue() && md->m_pendingAsyncDependencies.value() > 0) {
+        // If module.[[PendingAsyncDependencies]] > 0, set module.[[AsyncEvaluating]] to true.
+        md->m_asyncEvaluating = true;
+    } else if (m_topCodeBlock->isAsync()) {
+        // Otherwise, if module.[[Async]] is true, perform ! ExecuteAsyncModule(module).
+        auto md = moduleData();
+        // Assert: module.[[Status]] is evaluating or evaluated.
+        ASSERT(md->m_status == ModuleData::Evaluating || md->m_status == ModuleData::Evaluated);
+        // Assert: module.[[Async]] is true.
+        ASSERT(m_topCodeBlock->isAsync());
+        // Set module.[[AsyncEvaluating]] to true.
+        md->m_asyncEvaluating = true;
+        // Let capability be ! NewPromiseCapability(%Promise%).
+        /*
+        auto innerCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+        // Let stepsFulfilled be the steps of a CallAsyncModuleFulfilled function as specified below.
+        // Let onFulfilled be CreateBuiltinFunction(stepsFulfilled, « [[Module]] »).
+        // Set onFulfilled.[[Module]] to module.
+        // Let stepsRejected be the steps of a CallAsyncModuleRejected function as specified below.
+        // Let onRejected be CreateBuiltinFunction(stepsRejected, « [[Module]] »).
+        // Set onRejected.[[Module]] to module.
+        ExtendedNativeFunctionObject* onFulfilled = new ExtendedNativeFunctionObjectImpl<1>(state, NativeFunctionInfo(AtomicString(state, exportName), asyncModuleFulfilledFunction, 2));
+        onFulfilled->setInternalSlotAsPointer(0, this);
+        ExtendedNativeFunctionObject* onRejected = new ExtendedNativeFunctionObjectImpl<1>(state, NativeFunctionInfo(AtomicString(), asyncModuleRejectedFunction, 1));
+        onRejected->setInternalSlotAsPointer(0, this);
+        // Let promiseCapability be ! NewPromiseCapability(%Promise%).
+        auto promiseCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+        // Return PerformPromiseThen(innerCapability.[[Promise]], onFulfilled, onRejected, promiseCapability).
+        innerCapability.m_promise->asPromiseObject()->then(state, onFulfilled, onRejected, promiseCapability);
+
+        // Perform ! module.ExecuteModule(capability).
+        moduleExecute(state, innerCapability);
+        // Return.
+        */
+    } else {
+        // Otherwise, perform ? module.ExecuteModule().
+        auto result = moduleExecute(state);
+        if (result.gotException) {
+            return result;
+        }
+    }
+    // Return index.
+    return Script::ModuleExecutionResult(false, Value(index));
+}
+
+Value Script::loadImportedModule(ExecutionState& state, Context* referrer, String* specifierString, String* exportName)
+{
+    ASSERT(isModule());
+    m_topCodeBlock->setIsAsync();
+
+    if (!moduleData()->m_didCallLoadedCallback) {
+        Global::platform()->didLoadModule(context(), nullptr, this);
+        moduleData()->m_didCallLoadedCallback = true;
+    }
+
+    // https://www.ecma-international.org/ecma-262/#sec-toplevelmoduleevaluationjob
+    auto result = moduleLinking(state);
+    if (result.gotException) {
+        throw result.value;
+    }
+    result = shadowRealmModuleEvaluation(state, specifierString, exportName);
+    if (result.gotException) {
+        throw result.value;
+    }
+    return result.value;
 }
 
 ModuleNamespaceObject* Script::getModuleNamespace(ExecutionState& state)

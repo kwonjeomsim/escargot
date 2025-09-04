@@ -107,7 +107,7 @@ Value ShadowRealmObject::getWrappedValue(ExecutionState& state, Context* callerR
     return value;
 }
 
-static Value execute(ExecutionState& state, Script* script, bool isExecuteOnEvalFunction, bool inStrictMode, Context* callerContext, Context* evalContext)
+static Value execute(ExecutionState& state, Script* script, Context* evalContext, bool inStrictMode)
 {
     InterpretedCodeBlock* topCodeBlock = script->topCodeBlock();
     ByteCodeBlock* byteCodeBlock = topCodeBlock->byteCodeBlock();
@@ -131,7 +131,9 @@ static Value execute(ExecutionState& state, Script* script, bool isExecuteOnEval
     ExecutionState* newVariableState = new ExtendedExecutionState(evalContext);
     newVariableState->setLexicalEnvironment(new LexicalEnvironment(newVariableRecord, globalLexicalEnvironment), topCodeBlock->isStrict());
     newVariableState->setParent(newState);
-    codeExecutionState = newVariableState;
+    if (inStrictMode) {
+        codeExecutionState = newVariableState;
+    }
 
     const InterpretedCodeBlock::IdentifierInfoVector& identifierVector = topCodeBlock->identifierInfos();
     size_t identifierVectorLen = identifierVector.size();
@@ -150,7 +152,7 @@ static Value execute(ExecutionState& state, Script* script, bool isExecuteOnEval
             // https://www.ecma-international.org/ecma-262/5.1/#sec-10.5
             // Step 2. If code is eval code, then let configurableBindings be true.
             if (identifierVector[i].m_isVarDeclaration) {
-                globalVariableRecord->createBinding(*codeExecutionState, identifierVector[i].m_name, isExecuteOnEvalFunction, identifierVector[i].m_isMutable, true, topCodeBlock);
+                globalVariableRecord->createBinding(*codeExecutionState, identifierVector[i].m_name, true, identifierVector[i].m_isMutable, true, topCodeBlock);
             }
         }
     }
@@ -190,6 +192,7 @@ static Value execute(ExecutionState& state, Script* script, bool isExecuteOnEval
     return resultValue;
 }
 
+// https://tc39.es/proposal-shadowrealm/#sec-performshadowrealmeval
 Value ShadowRealmObject::performShadowRealmEval(ExecutionState& state, Value& sourceText, Context* callerRealm, Context* evalRealm)
 {
     ScriptParser parser(evalRealm);
@@ -199,11 +202,71 @@ Value ShadowRealmObject::performShadowRealmEval(ExecutionState& state, Value& so
     ExtendedExecutionState stateForNewGlobal(evalRealm);
     Value result;
     try {
-        result = execute(stateForNewGlobal, script, true, script->topCodeBlock()->isStrict(), callerRealm, evalRealm);
+        result = execute(stateForNewGlobal, script, evalRealm, true);
     } catch (const Value& e) {
         ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "ShadowRealm.evaluate failed");
     }
     return getWrappedValue(state, callerRealm, result);
+}
+
+static Value exportGetter(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // Assert: exports is a module namespace exotic object.
+    // Let f be the active function object.
+    // Let string be f.[[ExportNameString]].
+    // Assert: string is a String.
+    ASSERT(argv[0].isString());
+    // Let hasOwn be ? HasOwnProperty(exports, string).
+    // If hasOwn is false, throw a TypeError exception.
+    Object* O = thisValue.asObject();
+    if (!O->hasOwnProperty(state, ObjectPropertyName(AtomicString(state, argv[0].asString())))) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "The state does not have an export named '%s'", argv[1].asString());
+    }
+    // Let value be ? Get(exports, string).
+    Value val = O->get(state, ObjectPropertyName(AtomicString(state, argv[0].asString()))).value(state, O);
+    // Let realm be f.[[Realm]].
+    // Return ? GetWrappedValue(realm, value).
+    return ShadowRealmObject::getWrappedValue(state, state.context(), val);
+}
+
+static Value importValueError(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // Throw a TypeError exception.
+    ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "Dynamic import failed in ShadowRealm.importValue");
+    return Value();
+}
+
+// https://tc39.es/proposal-shadowrealm/#sec-shadowrealmimportvalue
+Value ShadowRealmObject::shadowRealmImportValue(ExecutionState& state, String* specifierString, String* exportName, Context* callerRealm, Context* evalRealm)
+{
+    ScriptParser parser(evalRealm);
+    Script* script = parser.initializeScript(exportName, evalRealm->staticStrings().lazyEvalCode().string(), true).scriptThrowsExceptionIfParseError(state);
+    // Let evalContext be GetShadowRealmContext(evalRealm, true).
+    ExecutionState* evalContext = new (alloca(sizeof(ExecutionState))) ExecutionState(evalRealm);
+    // Let innerCapability be ! NewPromiseCapability(%Promise%).
+    auto innerCapability = PromiseObject::newPromiseCapability(*evalContext, evalRealm->globalObject()->promise());
+    // Let runningContext be the running execution context.
+    // If runningContext is not already suspended, suspend runningContext.
+    // Push evalContext onto the execution context stack; evalContext is now the running execution context.
+    // Let referrer be the Realm component of evalContext.
+    // Perform HostLoadImportedModule(referrer, specifierString, empty, innerCapability).
+    Script::ModuleRequest* request = new Script::ModuleRequest(specifierString, Platform::ModuleES);
+    script->loadImportedModule(*evalContext, evalRealm, specifierString, exportName);
+    // Suspend evalContext and remove it from the execution context stack.
+    // Resume the context that is now on the top of the execution context stack as the running execution context.
+    // Let steps be the algorithm steps defined in ExportGetter functions.
+    // Let onFulfilled be CreateBuiltinFunction(steps, 1, "", « [[ExportNameString]] », callerRealm).
+    // Set onFulfilled.[[ExportNameString]] to exportNameString.
+    // Let errorSteps be the algorithm steps defined in ImportValueError functions.
+    // Let onRejected be CreateBuiltinFunction(errorSteps, 1, "", «», callerRealm).
+    ExtendedNativeFunctionObject* onFulfilled = new ExtendedNativeFunctionObjectImpl<1>(state, NativeFunctionInfo(AtomicString(state, exportName), exportGetter, 2));
+    onFulfilled->setInternalSlotAsPointer(0, script);
+    ExtendedNativeFunctionObject* onRejected = new ExtendedNativeFunctionObjectImpl<1>(state, NativeFunctionInfo(AtomicString(), importValueError, 1));
+    onRejected->setInternalSlotAsPointer(0, script);
+    // Let promiseCapability be ! NewPromiseCapability(%Promise%).
+    auto promiseCapability = PromiseObject::newPromiseCapability(state, state.context()->globalObject()->promise());
+    // Return PerformPromiseThen(innerCapability.[[Promise]], onFulfilled, onRejected, promiseCapability).
+    return innerCapability.m_promise->asPromiseObject()->then(state, onFulfilled, onRejected, promiseCapability).value();
 }
 
 #endif

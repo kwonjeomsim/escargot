@@ -256,6 +256,11 @@ public:
 
     typedef TightVector<BlockIdentifierInfo, GCUtil::gc_malloc_atomic_allocator<BlockIdentifierInfo>> BlockIdentifierInfoVector;
 
+    void setIsAsync()
+    {
+        m_isAsync = true;
+    }
+    
     class BlockInfo : public gc {
     public:
         BlockInfo(bool isGenericBlockInfo = false,

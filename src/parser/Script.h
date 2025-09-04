@@ -238,6 +238,9 @@ public:
     // https://tc39.es/ecma262/#sec-meta-properties-runtime-semantics-evaluation
     Object* importMetaProperty(ExecutionState& state);
 
+    // https://tc39.es/ecma262/#sec-HostLoadImportedModule
+    Value loadImportedModule(ExecutionState& state, Context* referrer, String* specifierString, String* exportName);
+
     // https://tc39.es/ecma262/#sec-getmodulenamespace
     ModuleNamespaceObject* getModuleNamespace(ExecutionState& state);
 
@@ -290,6 +293,10 @@ private:
         {
         }
     };
+
+    ModuleExecutionResult shadowRealmModuleEvaluation(ExecutionState& state, String* specifierString, String* exportName);
+    ModuleExecutionResult innerShadowRealmModuleEvaluation(ExecutionState& state, std::vector<Script*>& stack, uint32_t index, String* specifierString, String* exportName);
+    
     // https://tc39.es/ecma262/#sec-moduledeclarationlinking
     ModuleExecutionResult moduleLinking(ExecutionState& state);
 

@@ -91,6 +91,32 @@ static Value builtinShadowRealmEvaluate(ExecutionState& state, Value thisValue, 
     return ShadowRealmObject::performShadowRealmEval(state, argv[0], callerRealm, evalRealm);
 }
 
+static Value builtinShadowRealmImportValue(ExecutionState& state, Value thisValue, size_t argc, Value* argv, Optional<Object*> newTarget)
+{
+    // Let O be the this value.
+    const Value& O = thisValue;
+    // Perform ? ValidateShadowRealmObject(O).
+    if (!O.isObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "this value must be an Object");
+    }
+    if (!O.asObject()->isShadowRealmObject()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "this value must be a ShadowRealm object");
+    }
+
+    // Let specifierString be ? ToString(specifier).
+    String* specifierString = argv[0].toString(state);
+    // If exportName is not a String, throw a TypeError exception.
+    if (!argv[1].isString()) {
+        ErrorObject::throwBuiltinError(state, ErrorCode::TypeError, "exportName must be a String");
+    }
+    // Let callerRealm be the current Realm Record.
+    Context* callerRealm = state.context();
+    // Let evalRealm be O.[[ShadowRealm]].
+    Context* evalRealm = O.asObject()->asShadowRealmObject()->realmContext();
+    // Return ShadowRealmImportValue(specifierString, exportName, callerRealm, evalRealm).
+    return ShadowRealmObject::shadowRealmImportValue(state, specifierString, argv[1].toString(state), callerRealm, evalRealm);
+}
+
 void GlobalObject::initializeShadowRealm(ExecutionState& state)
 {
     ObjectPropertyNativeGetterSetterData* nativeData = new ObjectPropertyNativeGetterSetterData(true, false, true, [](ExecutionState& state, Object* self, const Value& receiver, const EncodedValue& privateDataFromObjectPrivateArea) -> Value {
@@ -117,6 +143,8 @@ void GlobalObject::installShadowRealm(ExecutionState& state)
 
     m_shadowRealmPrototype->directDefineOwnProperty(state, ObjectPropertyName(strings->evaluate),
                                                     ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->evaluate, builtinShadowRealmEvaluate, 1, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
+    m_shadowRealmPrototype->directDefineOwnProperty(state, ObjectPropertyName(strings->importValue),
+                                                    ObjectPropertyDescriptor(new NativeFunctionObject(state, NativeFunctionInfo(strings->importValue, builtinShadowRealmImportValue, 2, NativeFunctionInfo::Strict)), (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
 
     redefineOwnProperty(state, ObjectPropertyName(state.context()->staticStrings().ShadowRealm),
                         ObjectPropertyDescriptor(m_shadowRealm, (ObjectPropertyDescriptor::PresentAttribute)(ObjectPropertyDescriptor::WritablePresent | ObjectPropertyDescriptor::ConfigurablePresent)));
