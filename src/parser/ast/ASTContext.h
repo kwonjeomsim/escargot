@@ -321,7 +321,11 @@ struct ASTScopeContext {
     AtomicStringTightVector *m_classPrivateNames; // this is needed for direct eval in class & nested class
     AtomicStringTightVector m_parameters;
     AtomicString m_functionName;
+#ifndef NDEBUG
+    TightVector<bool, GCUtil::gc_malloc_atomic_allocator<bool>> m_parameterUsed;
 
+    ASTScopeContext *m_parent;
+#endif
     ASTScopeContext *m_firstChild;
     ASTScopeContext *m_nextSibling;
     ASTBlockContextVector m_childBlockScopes;
