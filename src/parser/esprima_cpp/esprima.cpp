@@ -339,26 +339,36 @@ public:
     }
 
 #ifndef ESCARGOT_DEBUGGER
+
+    bool changeParameterUsedValue(ASTScopeContext* scopeCtx, AtomicString name)
+    {
+        if (scopeCtx->m_parameterTable.mayContain(name)) {
+            bool isChecked = false;
+            for (size_t i = 0; i < scopeCtx->m_parameters.size(); i++) {
+                if (scopeCtx->m_parameters[i] == name) {
+                    scopeCtx->m_parameterUsed |= (1 << i);
+                    isChecked = true;
+                }
+            }
+
+            return isChecked;
+        }
+
+        return false;
+    }
     void setParameterUsed(ASTScopeContext* scopeCtx, AtomicString name)
     {
         while (scopeCtx) {
-            if (name == "eval" || name == "arguments") {
-                scopeCtx->m_parameterUsed = 0xFFFF;
-            } else if (scopeCtx->m_parameterTable.mayContain(name)) {
-                bool isChecked = false;
-                for (size_t i = 0; i < scopeCtx->m_parameters.size(); i++) {
-                    if (scopeCtx->m_parameters[i] == name) {
-                        scopeCtx->m_parameterUsed |= (1 << i);
-                        isChecked = true;
-                    }
-                }
-
-                if (isChecked) {
+            if (LIKELY(scopeCtx->m_parameterUsed != 0xFFFF)) {
+                if (changeParameterUsedValue(scopeCtx, name)) {
                     return;
+                } else if (!scopeCtx->m_parameters.size()) {
+                    // This part is for check parameter using in function parameter default value
+                    scopeCtx->m_parameterTable.add(name);
                 }
-            } else if (!scopeCtx->m_parameters.size()) {
-                // This part is for adding parameter table before parsing function body
-                scopeCtx->m_parameterTable.add(name);
+            } else {
+                scopeCtx = scopeCtx->m_parent;
+                continue;
             }
 
             scopeCtx = scopeCtx->m_parent;
@@ -515,6 +525,13 @@ public:
             ASSERT(this->currentScopeContext->m_functionLength == params.size());
             ASSERT(this->currentScopeContext->m_functionLength == paramNames.size());
             ASSERT(this->currentScopeContext->m_functionLength == this->currentScopeContext->m_parameterCount);
+        }
+#endif
+#ifndef ESCARGOT_DEBUGGER
+        if (this->currentScopeContext->m_hasEval || this->currentScopeContext->m_allowArguments) {
+            this->currentScopeContext->m_parameterUsed = 0xFFFF;
+        } else {
+            this->currentScopeContext->m_parameterUsed = 0;
         }
 #endif
         this->currentScopeContext->m_parameters.resizeWithUninitializedValues(paramNames.size());
