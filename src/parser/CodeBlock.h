@@ -32,7 +32,6 @@ class Script;
 class Value;
 class Object;
 struct ASTScopeContext;
-struct ASTBlockContext;
 struct ByteCodeGenerateContext;
 
 typedef HashMap<AtomicString, StorePositiveNumberAsOddNumber, std::hash<AtomicString>, std::equal_to<AtomicString>,
@@ -991,7 +990,7 @@ protected:
 #endif
 
 #ifndef ESCARGOT_DEBUGGER
-    uint16_t m_parameterUsed : 16;
+    uint16_t m_parameterUsed : 16; // 0xFFFF means all parameters are used or function has more than 16 parameters
 #endif
 
     uint16_t m_functionLength : 16;
