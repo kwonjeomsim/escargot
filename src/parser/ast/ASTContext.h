@@ -321,7 +321,9 @@ struct ASTScopeContext {
     AtomicStringTightVector *m_classPrivateNames; // this is needed for direct eval in class & nested class
     AtomicStringTightVector m_parameters;
     AtomicString m_functionName;
-
+#ifndef ESCARGOT_DEBUGGER
+    uint16_t m_parameterUsed : 16;
+#endif
     ASTScopeContext *m_firstChild;
     ASTScopeContext *m_nextSibling;
     ASTBlockContextVector m_childBlockScopes;
@@ -703,6 +705,9 @@ struct ASTScopeContext {
         , m_lexicalBlockIndexFunctionLocatedIn(LEXICAL_BLOCK_INDEX_MAX)
         , m_varNamesMap(nullptr)
         , m_classPrivateNames(nullptr)
+#ifndef ESCARGOT_DEBUGGER
+        , m_parameterUsed(0)
+#endif
         , m_firstChild(nullptr)
         , m_nextSibling(nullptr)
         , m_functionStartLOC(1, 1, 0) // set default start location at the start of the code

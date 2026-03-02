@@ -317,8 +317,46 @@ public:
         }
     }
 
+#ifndef ESCARGOT_DEBUGGER
+    void setParameterUsedValue(ASTScopeContext* scopeCtx)
+    {
+        while (scopeCtx) {
+            for (size_t i = 0; i < this->currentScopeContext->m_parameters.size(); i++) {
+                if (this->currentScopeContext->m_parameterUsed == 0xFFFF) {
+                    break;
+                }
+
+                AtomicString name = this->currentScopeContext->m_parameters[i];
+                for (size_t j = 0; j < scopeCtx->m_childBlockScopes.size(); j++) {
+                    ASTBlockContext* blockCtx = scopeCtx->m_childBlockScopes[j];
+                    if (VectorUtil::findInVector(blockCtx->m_usingNames, name) != VectorUtil::invalidIndex) {
+                        this->currentScopeContext->m_parameterUsed |= (1 << i);
+                        break;
+                    } else if (UNLIKELY(VectorUtil::findInVector(blockCtx->m_usingNames, stringArguments) != VectorUtil::invalidIndex)) {
+                        this->currentScopeContext->m_parameterUsed = 0xFFFF;
+                        break;
+                    }
+                }
+            }
+
+            if (scopeCtx->firstChild()) {
+                setParameterUsedValue(scopeCtx->firstChild());
+            }
+
+            if (scopeCtx != this->currentScopeContext) {
+                scopeCtx = scopeCtx->nextSibling();
+            } else {
+                break;
+            }
+        }
+    }
+#endif
+
     ASTScopeContext* popScopeContext(ASTScopeContext* lastPushedScopeContext)
     {
+#ifndef ESCARGOT_DEBUGGER
+        setParameterUsedValue(this->currentScopeContext);
+#endif
         auto ret = this->currentScopeContext;
         this->lastUsingName = AtomicString();
         this->lastPoppedScopeContext = ret;
@@ -480,6 +518,11 @@ public:
             ASSERT(this->currentScopeContext->m_functionLength == params.size());
             ASSERT(this->currentScopeContext->m_functionLength == paramNames.size());
             ASSERT(this->currentScopeContext->m_functionLength == this->currentScopeContext->m_parameterCount);
+        }
+#endif
+#ifndef ESCARGOT_DEBUGGER
+        if (UNLIKELY(paramNames.size() > 16)) {
+            this->currentScopeContext->m_parameterUsed = 0xFFFF;
         }
 #endif
         this->currentScopeContext->m_parameters.resizeWithUninitializedValues(paramNames.size());
@@ -2562,6 +2605,9 @@ public:
                 // check callee of CallExpressionNode
                 if (exprNode->isIdentifier() && exprNode->asIdentifier()->name() == escargotContext->staticStrings().eval) {
                     this->currentScopeContext->m_hasEval = true;
+#ifndef ESCARGOT_DEBUGGER
+                    this->currentScopeContext->m_parameterUsed = 0xFFFF;
+#endif
                 }
                 exprNode = this->finalize(this->startNode(startToken), builder.createCallExpressionNode(exprNode, args, optional));
                 if (asyncArrow && this->match(Arrow)) {
@@ -5032,7 +5078,18 @@ public:
                 Node* param = this->parseFormalParameter(builder, options);
 
                 switch (param->type()) {
-                case Identifier:
+                case Identifier: {
+#ifndef ESCARGOT_DEBUGGER
+                    if (this->codeBlock->parameterUsed() & (1 << paramIndex) || this->codeBlock->parameterUsed() == 0xFFFF) {
+#endif
+                        Node* init = this->finalize(node, builder.createInitializeParameterExpressionNode(param, paramIndex));
+                        Node* statement = this->finalize(node, builder.createExpressionStatementNode(init));
+                        container->appendChild(statement);
+#ifndef ESCARGOT_DEBUGGER
+                    }
+#endif
+                    break;
+                }
                 case AssignmentPattern:
                 case ArrayPattern:
                 case ObjectPattern: {
@@ -5042,8 +5099,14 @@ public:
                     break;
                 }
                 case RestElement: {
-                    Node* statement = this->finalize(node, builder.createExpressionStatementNode(param));
-                    container->appendChild(statement);
+#ifndef ESCARGOT_DEBUGGER
+                    if (this->codeBlock->parameterUsed() & (1 << paramIndex) || this->codeBlock->parameterUsed() == 0xFFFF || param->asRestElement()->argument()->type() != Identifier) {
+#endif
+                        Node* statement = this->finalize(node, builder.createExpressionStatementNode(param));
+                        container->appendChild(statement);
+#ifndef ESCARGOT_DEBUGGER
+                    }
+#endif
                     break;
                 }
                 default: {

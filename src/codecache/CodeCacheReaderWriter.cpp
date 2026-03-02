@@ -210,6 +210,12 @@ void CodeCacheWriter::storeInterpretedCodeBlock(InterpretedCodeBlock* codeBlock)
     m_buffer.put(codeBlock->m_bodyEndLOC);
 #endif
 
+#ifndef ESCARGOT_DEBUGGER
+    // InterpretedCodeBlock::m_parameterUsed
+    m_buffer.ensureSize(sizeof(uint16_t));
+    m_buffer.put(codeBlock->m_parameterUsed);
+#endif
+
     m_buffer.ensureSize(5 * sizeof(uint16_t));
     m_buffer.put(codeBlock->m_functionLength);
     m_buffer.put(codeBlock->m_parameterCount);
@@ -783,6 +789,11 @@ InterpretedCodeBlock* CodeCacheReader::loadInterpretedCodeBlock(Context* context
 #ifndef NDEBUG
     // InterpretedCodeBlock::m_bodyEndLOC
     codeBlock->m_bodyEndLOC = m_buffer.get<ExtendedNodeLOC>();
+#endif
+
+#ifndef ESCARGOT_DEBUGGER
+    // InterpretedCodeBlock::m_parameterUsed
+    codeBlock->m_parameterUsed = m_buffer.get<uint16_t>();
 #endif
 
     codeBlock->m_functionLength = m_buffer.get<uint16_t>();

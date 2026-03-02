@@ -542,6 +542,13 @@ public:
         return m_parameterNames;
     }
 
+#ifndef ESCARGOT_DEBUGGER
+    uint16_t parameterUsed() const
+    {
+        return m_parameterUsed;
+    }
+#endif
+
     const IdentifierInfoVector& identifierInfos() const
     {
         return m_identifierInfos;
@@ -980,6 +987,10 @@ protected:
     ExtendedNodeLOC m_functionStart; // point to the start position
 #if !(defined NDEBUG) || defined ESCARGOT_DEBUGGER
     ExtendedNodeLOC m_bodyEndLOC;
+#endif
+
+#ifndef ESCARGOT_DEBUGGER
+    uint16_t m_parameterUsed : 16; // 0xFFFF means all parameters are used or function has more than 16 parameters
 #endif
 
     uint16_t m_functionLength : 16;

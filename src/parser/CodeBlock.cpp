@@ -394,6 +394,10 @@ void InterpretedCodeBlock::recordFunctionParsingInfo(ASTScopeContext* scopeCtx, 
         }
     }
 
+#ifndef ESCARGOT_DEBUGGER
+    m_parameterUsed = scopeCtx->m_parameterUsed;
+#endif
+
     m_canUseIndexedVariableStorage = !m_hasEval && !m_isEvalCode && !m_hasWith;
     m_canAllocateEnvironmentOnStack = m_canUseIndexedVariableStorage && !m_isGenerator && !m_isAsync;
     m_canAllocateVariablesOnStack = true;
